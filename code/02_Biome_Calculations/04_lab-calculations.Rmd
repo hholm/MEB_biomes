@@ -15,6 +15,7 @@ dic2 <- readxl::read_xlsx("C:/Users/henryholm/OneDrive - Woods Hole Oceanographi
 # load pH plate data
 loc <- "C:/Users/henryholm/OneDrive - Woods Hole Oceanographic Institution/Desktop/ORCC/"
 loc <- paste0(loc, c("ORCC_pH_Complete_Book.xlsx", "ORCC_pH_Complete_Book_preJan13th.xlsx"))
+
 # import data from all sheets and combine
 all_sheets <- lapply(loc, function(loc) {
   # Get all sheet names

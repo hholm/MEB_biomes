@@ -418,8 +418,13 @@ nrow(OA_ICC)
 # clean up
 rm(list = setdiff(ls(), c("datasets","OA_ICC")))
 
+# write
+write.csv(OA_ICC,here("data/OA_ICC_Data/OA_ICC_data_merged.csv"))
+
 # list final stats
 summary(OA_ICC %>% select(FINAL_TREAT,TIME_TREAT,Study_DOI,CO2_mean,
                           HCO3_mean,CO3_mean,Temp_mean,DIC_mean,pHT_mean))
+
+
 
 ```

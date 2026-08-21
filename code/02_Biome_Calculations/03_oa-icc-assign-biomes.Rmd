@@ -351,6 +351,8 @@ OA_ICC %>%
   count(dir, ocean_relevant, miss_cooccurrence, name = "n") %>%
   arrange(desc(n))
 
+write.csv(OA_ICC,here("data/OA_ICC_Data/OA_ICC_data_final.csv"))
+
 ```
 
 Plotting Supp. Figures and Stats for Paper
@@ -496,3 +498,4 @@ e <- ggVennDiagram::ggVennDiagram(list(
 pie1_a + b + c + d + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = "A")
 
 ```
+
