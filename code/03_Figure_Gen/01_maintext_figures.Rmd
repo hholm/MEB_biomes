@@ -1,0 +1,935 @@
+---
+title: "01_maintext_figures"
+author: "Henry Holm"
+date: "2026-08-20"
+output: html_document
+---
+
+Load Data and Packages - plotting functions
+```{r}
+# load packages
+library(tidyverse) # data processing, plotting
+library(patchwork) # plotting
+library(ggpubr)    # plotting
+library(here)      # file access
+
+# annualized biome average data
+biomes <- read.csv(here("data/product_data_processed/wide_annual_biomes_values.csv"))
+
+# OA-ICC with conditions
+OA_ICC <- read.csv(here("data/OA_ICC_data/OA_ICC_data_final.csv"))
+
+set_theme(theme_minimal())
+
+#### set axis expressions
+dhco3 <- expression(paste("Δ [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+dco2 <- expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")
+dco3 <- expression(paste("Δ [CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+dtemp <- "Δ Temperature (°C)"
+dpco2 <- expression("Δ pCO"[2]*"")
+hco3 <- expression(paste("[HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+co2 <- expression("[CO"[2]*"] (umol kg"^{-1}*")")
+co3 <- expression(paste("[CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+temp <- "Temperature (°C)"
+pco2 <- expression("pCO"[2]*"")
+
+#### helper functions
+plot_delta <- function(data, var_x_suffix, var_y_suffix, y_lab = NA, x_lab = NA) {
+  
+  # Check for missing or NA character labels
+  if (missing(y_lab) || (is.character(y_lab) && length(y_lab) == 1 && is.na(y_lab))) {
+    y_lab <- var_y_suffix
+  }
+  if (missing(x_lab) || (is.character(x_lab) && length(x_lab) == 1 && is.na(x_lab))) {
+    x_lab <- var_x_suffix
+  }
+  
+  x_col <- paste0("areaW_mean_delta_", var_x_suffix)
+  y_col <- paste0("areaW_mean_delta_", var_y_suffix)
+  sd_x_col <- paste0("sd_delta_", var_x_suffix)
+  sd_y_col <- paste0("sd_delta_", var_y_suffix)
+  
+  x_sym <- rlang::sym(x_col)
+  y_sym <- rlang::sym(y_col)
+  sd_x_sym <- rlang::sym(sd_x_col)
+  sd_y_sym <- rlang::sym(sd_y_col)
+  
+  ggplot(
+    data %>% subset(type != "ICE" & period != "2000s"),
+    aes(x = !!x_sym, y = !!y_sym, color = p_s,shape = type)
+  ) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_vline(xintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_point(size = 2) +
+    geom_errorbar(aes(
+      ymin = !!y_sym - !!sd_y_sym,
+      ymax = !!y_sym + !!sd_y_sym
+    ),linewidth = 0.1) +
+    geom_errorbarh(aes(
+      xmin = !!x_sym - !!sd_x_sym,
+      xmax = !!x_sym + !!sd_x_sym
+    ),linewidth = 0.1) +
+    labs(
+      y = if (is.expression(y_lab)) y_lab else paste0(y_lab),
+      x = if (is.expression(x_lab)) x_lab else paste0(x_lab),
+      color = "Period and Scenario", shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50", "orange", "maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+plot_abs_data <- function(data, 
+                          xvar, yvar,
+                          xlab = NULL, ylab = NULL,sdevs = 1) {
+  
+  # Capture variable names
+  x_name <- rlang::as_name(rlang::enquo(xvar))
+  y_name <- rlang::as_name(rlang::enquo(yvar))
+  
+  # Auto-find matching SD columns (assumes "sd_" prefix)
+  sd_x_name <- paste0("sd_", sub("^areaW_mean_", "", x_name))
+  sd_y_name <- paste0("sd_", sub("^areaW_mean_", "", y_name))
+  
+  # Check if they exist, else set NULL
+  sd_x <- if (sd_x_name %in% names(data)) rlang::sym(sd_x_name) else NULL
+  sd_y <- if (sd_y_name %in% names(data)) rlang::sym(sd_y_name) else NULL
+  
+  ggplot_data <- data %>%
+    subset(type != "ICE") %>%
+    group_by(scenario, biome, loc, type, period) %>%
+    ungroup()
+  
+  p <- ggplot(ggplot_data, aes(x = {{ xvar }}, y = {{ yvar }},
+                               color = p_s, shape = type)) +
+    geom_point()
+  
+  # Add error bars if found
+  if (!is.null(sd_y)) {
+    p <- p + geom_errorbar(aes(ymin = {{ yvar }} - !!sd_y*sdevs,
+                               ymax = {{ yvar }} + !!sd_y*sdevs),
+                           linewidth = 0.1)
+  }
+  if (!is.null(sd_x)) {
+    p <- p + geom_errorbar(aes(xmin = {{ xvar }} - !!sd_x*sdevs,
+                               xmax = {{ xvar }} + !!sd_x*sdevs),
+                           linewidth = 0.1)
+  }
+  
+  p +
+    labs(
+      x = ifelse(is.null(xlab), x_name, xlab),
+      y = ifelse(is.null(ylab), y_name, ylab),
+      color = "Period and Scenario", 
+      shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50","#3295a8","orange","maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+
+```
+
+Main Text Figure 2 - Biome Scalings
+```{r fig.height=4.5, fig.width=11}
+
+fig1_bottom <- (
+  plot_delta(biomes,"tos","pCO2", x_lab = dtemp, y_lab = dpco2) +
+    plot_delta(biomes,"aqueous","pCO2", x_lab = dco2, y_lab = dpco2) + 
+    plot_delta(biomes,"bicarbonate","pCO2", x_lab = dhco3, y_lab = dpco2) + 
+    plot_delta(biomes,"carbonate","pCO2", x_lab = dco3, y_lab = dpco2) +
+    plot_delta(biomes,"pH","pCO2", x_lab = "Δ pH (Total Scale)", y_lab = dpco2) +
+    plot_delta(biomes,"dic","pCO2", x_lab = expression("Δ DIC (umol kg"^{-1}*")"), y_lab = dpco2) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  theme(
+    legend.position = "none",
+    plot.tag = element_text(
+      face = "bold",
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+fig1_top <- (
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_tos, yvar = areaW_mean_abs_pCO2,
+    xlab = temp, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_aqueous, yvar = areaW_mean_abs_pCO2,
+    xlab = co2, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_bicarbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = hco3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_carbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = co3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_pH, yvar = areaW_mean_abs_pCO2,
+    xlab = "pH (Total Scale)", ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_dic, yvar = areaW_mean_abs_pCO2,
+    xlab = expression("DIC (umol kg"^{-1}*")"), ylab = pco2
+  ) + theme(legend.position = "none") + scale_x_continuous(n.breaks = 4) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+     # family = "Arial", 
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+(fig1_top / fig1_bottom) + plot_annotation(tag_levels = "A")
+
+```
+
+Main Text Figure 3 - Compare Biomes to OA-ICC
+```{r fig.height=5, fig.width=11}
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_bicarbonate, x = areaW_mean_abs_aqueous, color = p_s)) +
+  geom_point(aes(y = HCO3_mean, x = CO2_mean, color = NA),
+                  color = 'grey70',alpha = 0.3,shape = 19, data = OA_ICC) +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_bicarbonate - sd_abs_bicarbonate*2,
+                    ymax = areaW_mean_abs_bicarbonate + sd_abs_bicarbonate*2),linewidth = 0.1) +
+  labs(x = co2, y = hco3,color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1,guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = list("EQU" = 15, "STPS" = 16, "STSS" = 17, "SPSS" = 4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),c(0,2600))
+
+panel1 <- main +
+inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.05,
+  right = 0.95, top = 0.45    
+)
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_carbonate, x = areaW_mean_abs_aqueous, color = p_s)) +
+      geom_point(aes(y = CO3_mean, x = CO2_mean, color = 'Lit data'),
+            alpha = 0.3, data = OA_ICC,shape = 19,color = "grey70") +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_carbonate - sd_abs_carbonate*2,
+                    ymax = areaW_mean_abs_carbonate + sd_abs_carbonate*2),linewidth = 0.1) +
+  labs(x = co2, y = co3,color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1,guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = c(15:17,4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),ylim = c(0,600))
+
+panel2 <- main + theme(legend.position = "none") + inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.45,
+  right = 0.95, top = 0.95
+) + labs(y = hco3, x = co3)
+
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_pH, x = areaW_mean_abs_aqueous, color = p_s)) +
+      geom_point(aes(y = pHT_mean, x = CO2_mean, color = 'Lit data'),
+            alpha = 0.3, data = OA_ICC,shape = 19,color = "grey70") +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_pH - sd_abs_pH*2,
+                    ymax = areaW_mean_abs_pH + sd_abs_pH*2),linewidth = 0.1) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  labs(x = co2, y = 'pH (Total Scale)',color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1, guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = c(15:17,4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),ylim = c(7.2,9.2))
+
+panel5 <- main + theme(legend.position = "none") + inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.45,
+  right = 0.95, top = 0.95
+) + labs(y = hco3, x = co3)
+
+panel1 + panel2 + plot_layout(ncol = 2) 
+
+```
+
+Main Text Figure 4 - Carbonate Alignment with N. Atlantic and Lab Data
+```{r}
+# pH Panel
+
+# convert pvalue to significance level
+signif.num <- function(x) {
+    symnum(x, corr = FALSE, na = FALSE, legend = FALSE,
+           cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1), 
+           symbols = c("<0.001", "<0.01", "<0.05", "<0.1", "NonSig"))
+}
+
+sp <- c("Ehux","Tpsu")
+formal <- c(Ehux = "G. huxleyi", Tpsu = "T. pseudonana")
+
+ph_cd <- list()
+
+# dfs
+for (i in 1:length(sp)) {
+  ph_cd$dfs[[sp[i]]] <- pHcd_all %>%
+    subset(Species == sp[i] &
+      complete.cases(.))
+}
+
+# models
+for (i in 1:length(sp)) {
+ph_cd$exp_mods[[sp[i]]]<- ph_cd$dfs[[sp[i]]] %>%
+  mutate(lnCellDensity = log10(CellDensity), lnpH_offset = log10(pH_offset)) %>%
+  lm(lnpH_offset ~ lnCellDensity,data = .)
+}
+
+ph_cd_param <- map_dfr(sp, function(species) {
+  mod <- ph_cd[["exp_mods"]][[species]]
+  mod_summary <- summary(mod)
+  
+  tibble(
+    Species = species,
+    Intercept = coef(mod)[1],
+    Slope = coef(mod)[2],
+    `Adj. R^2` = mod_summary$adj.r.squared,
+    `Slope p-value` = signif.num(mod_summary$coefficients[2, 4]),
+    `Intercept p-value` = signif.num(mod_summary$coefficients[1, 4]),
+  )
+})
+
+ph_cd_param %>% gt::gt() %>% gtExtras::gt_theme_pff()
+
+ph <- seq(0,2,0.01)
+names(ph_cd_param$Intercept) <- ph_cd_param$Species
+ph <- cbind(ph,as.data.frame(map2(ph_cd_param$Intercept,ph_cd_param$Slope,~ 10^((log10(ph) - .x)/.y)))) %>%
+  pivot_longer(ph_cd_param$Species,names_to = 'sp',values_to = "cd")
+  
+for (i in 1:length(sp)) {
+  ph_offset <- 0.1
+  cells_ml <- as.numeric(ph %>% subset(sp == sp[i] & ph == ph_offset) %>% select(cd))
+  ph_cd[["plots"]][[sp[i]]] <- ph_cd$dfs[[sp[i]]] %>%
+  ggplot() +
+  geom_point(aes(CellDensity,pH_offset,
+                 #color = container,shape = as.character(Incubator.CO2.ppm.nominal)
+                 ),size = 2) +
+  geom_line(aes(cd,ph),data = subset(ph,sp == sp[i]),size = 0.5) +
+  annotate(geom = "segment",y = ph_offset,yend = ph_offset,x = 0,xend = cells_ml,linetype = "dashed") +
+  annotate(geom = "segment",y = -0.2,yend = ph_offset,x = cells_ml,xend = cells_ml,linetype = "dashed") +
+  scale_x_log10() +
+  scale_y_continuous(limits = c(-0.2,1.75),expand = expansion()) +
+  annotate("text", y = 1.4, x = min(ph_cd$dfs[[sp[i]]]$CellDensity, na.rm = TRUE), size = 4, fontface = 'italic', 
+         label = formal[sp[i]], hjust = 0, vjust = 1.1) +
+  ggsci::scale_color_npg() +
+  labs(x = "log10 Cell Density (cells mL-1)", y = "ΔpH",color = "Container",shape = "Air CO2 Level") +
+  ggpubr::theme_pubclean() + theme(legend.position = "right")
+
+}
+
+cells_ml_ehux <- as.numeric(ph %>% subset(sp == "Ehux" & ph == ph_offset) %>% select(cd))
+cells_ml_tpsu <- as.numeric(ph %>% subset(sp == "Tpsu" & ph == ph_offset) %>% select(cd))
+
+pH <- ph_cd$dfs %>%
+  bind_rows() %>%
+  ggplot() +
+  geom_point(aes(CellDensity,pH_offset,
+                 color = Species,
+                 ),size = 2) +
+  geom_line(aes(cd,ph,color = "Ehux"),data = subset(ph,sp == "Ehux"),size = 1) +
+  geom_line(aes(cd,ph,color = "Tpsu"),data = subset(ph,sp == "Tpsu"),size = 1) +
+  annotate(geom = "segment",y = ph_offset,yend = ph_offset,x = 0,xend = cells_ml_ehux,linetype = "dashed") +
+  annotate(geom = "segment",y = -0.2,yend = ph_offset,x = cells_ml_ehux,xend = cells_ml_ehux,linetype = "dashed") +
+  annotate(geom = "segment",y = ph_offset,yend = ph_offset,x = 0,xend = cells_ml_tpsu,linetype = "dashed") +
+  annotate(geom = "segment",y = -0.2,yend = ph_offset,x = cells_ml_tpsu,xend = cells_ml_tpsu,linetype = "dashed") +
+  scale_x_log10(breaks = 10^(3:6)) +
+  scale_y_continuous(limits = c(-0.2,1.75),expand = expansion()) +
+  scale_color_manual(values = c('darkgreen','#5cd65c')) +
+  labs(x = "Cell Density (log10 cells/mL)", y = "ΔpH",shape = "Air CO2 Level") +
+  ggpubr::theme_pubclean() + theme(legend.position = "top")
+
+
+#### Condition Panel
+choose_biomes <- c("NA_STPS","NA_STSS","Atl_EQU")
+#choose_biomes <- unique(abs$biome)
+probs <- c(0.95,0.80,0.5)
+
+vars <- colnames(lab)[str_detect(colnames(lab),"pyco2sys_")] %>%
+  str_remove_all("_mean") %>% str_remove_all("_sd") %>% unique()
+
+# lab_plot <- lab %>%
+#   select(-pyco2sys_par1_mean) %>%
+#   filter(samp_group %in% c("all_sample","all_blank")) %>%
+#   pivot_longer(
+#     cols = c(matches("^pyco2sys_.*_(mean|sd)$"), -starts_with("seacarb_flag_")),
+#     names_to = c("var", ".value"),
+#     names_pattern = "^(pyco2sys_.*)_(mean|sd)$"
+#   ) %>%
+#   mutate(value = set_errors(mean, sd)) %>%
+#   select(-mean, -sd) %>%
+#   pivot_wider(names_from = var, values_from = value) %>%
+#   group_by(Incubator.CO2.ppm.nominal, Name) %>%
+#   select(Incubator.CO2.ppm.nominal, Name, all_of(vars)) %>%
+#   group_by(Incubator.CO2.ppm.nominal, Name) %>%
+#   summarise(across(all_of(vars),.fns = list(mean = mean))) %>%
+#   mutate(across(all_of(paste0(vars,"_mean")),.fns = list(sd = errors))) %>%
+#   rename_with(~ gsub("_mean_sd", "_sd", .x))
+
+lab_plot <- lab %>%
+  filter(samp_group %in% c("all_sample"))
+  
+
+# Core refactor function
+refactor_vars <- function(df, dataset, x_var, y_var, ymult = 1,xmult = 1, keep = NULL) {
+  x_mean <- sym(paste0(x_var, "_mean"))
+  x_sd   <- sym(paste0(x_var, "_sd"))
+  y_mean <- sym(paste0(y_var, "_mean"))
+  y_sd   <- sym(paste0(y_var, "_sd"))
+  
+  df %>%
+    transmute(
+      dataset = dataset,
+      x    = !!x_mean * xmult,
+      y    = !!y_mean * ymult,
+      x_sd = !!x_sd   * xmult,
+      y_sd = !!y_sd   * ymult,
+      !!!syms(keep)
+    )
+}
+
+# Wrapper: multiple datasets → bind_rows
+refactor_many <- function(specs) {
+  map_dfr(specs, function(s) {
+    refactor_vars(
+      df      = s$df,
+      dataset = s$dataset,
+      x_var   = s$x_var,
+      y_var   = s$y_var,
+      xmult    = s$xmult %||% 1,
+      ymult    = s$ymult %||% 1,
+      keep    = s$keep %||% NULL
+    )
+  })
+}
+
+
+# CMIP6 pre-processing step
+cmip6_wide <- delta %>%
+  subset(biome %in% choose_biomes) 
+
+cmip6_wide$p_s <-  paste(cmip6_wide$scenario, cmip6_wide$period,  sep = " - ")
+
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp585 - 2000s")),"p_s"] <- "Both Scenarios, 2000s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 2000s")),"p_s"] <- "Both Scenarios, 2000s"
+
+levels_order <- c(
+  "Historical , 1850s",
+  "Both Scenarios, 2000s",
+  "SSP2-4.5 , 2090s",
+  "SSP5-8.5 , 2090s",
+  "BATS", "Lab Data, this study"
+)
+cmip6_wide$p_s <- factor(cmip6_wide$p_s,levels = levels_order)
+
+cmip6_wide <- cmip6_wide %>% rename(aqueous_mean = "areaW_mean_delta_aqueous",
+                      aqueous_sd = "sd_delta_aqueous",
+                      bicarbonate_mean = "areaW_mean_delta_bicarbonate",
+                      bicarbonate_sd = "sd_delta_bicarbonate",
+                      carbonate_mean = "areaW_mean_delta_carbonate",
+                      carbonate_sd = "sd_delta_carbonate",
+                      tos_mean = "areaW_mean_delta_tos",
+                      tos_sd = "sd_delta_tos")
+
+# Define the list of datasets + specs
+dat1 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "HCO3", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "bicarbonate", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "pyco2sys_HCO3",
+       ymult = 1e6,xmult = 1e6, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+errors(dat1$x) <- dat1$x_sd
+errors(dat1$y) <- dat1$y_sd
+
+baseline_lab_x <- dat1[which(dat1$Incubator.CO2.ppm.nominal == 420),] %>% pull(x)
+baseline_lab_y <- dat1[which(dat1$Incubator.CO2.ppm.nominal == 420),] %>% pull(y)
+
+baseline_BATS_x <- dat1[which(dat1$decade == "2000s"),] %>% pull(x)
+baseline_BATS_y <- dat1[which(dat1$decade == "2000s"),] %>% pull(y)
+
+
+dat1 <- dat1 %>%
+  ungroup() %>%
+  mutate(
+    x = if_else(
+      dataset == "Lab Data, this study",
+      x - baseline_lab_x,
+      x
+    ),
+    y = if_else(
+      dataset == "Lab Data, this study",
+      y - baseline_lab_y,
+      y
+    ),
+    x = if_else(
+      dataset == "BATS",
+      x - baseline_BATS_x,
+      x
+    ),
+    y = if_else(
+      dataset == "BATS",
+      y - baseline_BATS_y,
+      y
+    )
+  )
+
+dat1$x_sd <- errors(dat1$x) 
+dat1$y_sd <- errors(dat1$y)
+
+A <- dat1 %>% subset(x != 0 & dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd, ymax = y + y_sd, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd, xmax = x + x_sd, color = p_s), width = 0) +
+  labs(x = expression("Δ [HCO"[3]*"] (umol kg"^{-1}*")"),
+       y = expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","orange","maroon","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17, "EQU" = 15,"Lab Data, this study" = 22, "BATS" = 10)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(x, y,color = "BATS"),data = subset(dat1,dataset == "BATS"),color = "blue") +
+  geom_point(aes(x, y,color = "BATS"),data = subset(dat1,dataset == "BATS"),color = "blue") +
+theme(legend.position = "none") 
+A
+
+#####
+
+# Define the list of datasets + specs
+dat2 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "Temp", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "tos", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "Temp.nominal",
+       ymult = 1e6,xmult = 1, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+errors(dat2$x) <- dat2$x_sd
+errors(dat2$y) <- dat2$y_sd
+
+baseline_lab_x <- dat2[which(dat1$Incubator.CO2.ppm.nominal == 420),] %>% pull(x)
+baseline_lab_y <- dat2[which(dat1$Incubator.CO2.ppm.nominal == 420),] %>% pull(y)
+
+baseline_BATS_x <- dat2[which(dat1$decade == "2000s"),] %>% pull(x)
+baseline_BATS_y <- dat2[which(dat1$decade == "2000s"),] %>% pull(y)
+
+
+dat2 <- dat2 %>%
+  mutate(
+    x = if_else(
+      dataset == "Lab Data, this study",
+      x - baseline_lab_x,
+      x
+    ),
+    y = if_else(
+      dataset == "Lab Data, this study",
+      y - baseline_lab_y,
+      y
+    ),
+    x = if_else(
+      dataset == "BATS",
+      x - baseline_BATS_x,
+      x
+    ),
+    y = if_else(
+      dataset == "BATS",
+      y - baseline_BATS_y,
+      y
+    )
+  )
+
+dat2$x_sd <- errors(dat2$x) 
+dat2$y_sd <- errors(dat2$y)
+
+B <- dat2 %>% subset(x != 0 & dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd, ymax = y + y_sd, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd, xmax = x + x_sd, color = p_s), width = 0) +
+  labs(x = expression("Δ Temperature (C)"),
+       y = expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","orange","maroon","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17, "EQU" = 15,"Lab Data, this study" = 22, "BATS" = 10)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(x, y),data = subset(dat2,dataset == "BATS"),color = "blue") +
+  geom_point(aes(x, y),data = subset(dat2,dataset == "BATS"),color = "blue") +
+  theme(legend.position = "none") 
+
+A + theme_minimal() + B + theme_minimal() + plot_layout(guides = "collect")
+
+A + B + A + B +
+plot_layout(guides = "collect",nrow = 2) 
+
+# Define the list of datasets + specs
+dat3 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "CO3", ymult = 1e6, xmult = 1e6),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "carbonate", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "pyco2sys_CO3",
+       ymult = 1e6,xmult = 1e6, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+errors(dat3$x) <- dat3$x_sd
+errors(dat3$y) <- dat3$y_sd
+
+baseline_lab_x <- dat3[which(dat3$Incubator.CO2.ppm.nominal == 420),] %>% pull(x)
+baseline_lab_y <- dat3[which(dat3$Incubator.CO2.ppm.nominal == 420),] %>% pull(y)
+
+baseline_BATS_x <- dat3[which(dat3$decade == "2000s"),] %>% pull(x)
+baseline_BATS_y <- dat3[which(dat3$decade == "2000s"),] %>% pull(y)
+
+
+dat3 <- dat3 %>%
+  ungroup() %>%
+  mutate(
+    x = if_else(
+      dataset == "Lab Data, this study",
+      x - baseline_lab_x,
+      x
+    ),
+    y = if_else(
+      dataset == "Lab Data, this study",
+      y - baseline_lab_y,
+      y
+    ),
+    x = if_else(
+      dataset == "BATS",
+      x - baseline_BATS_x,
+      x
+    ),
+    y = if_else(
+      dataset == "BATS",
+      y - baseline_BATS_y,
+      y
+    )
+  )
+
+dat3$x_sd <- errors(dat3$x) 
+dat3$y_sd <- errors(dat3$y)
+
+C <- dat3 %>% subset(x != 0 & dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd, ymax = y + y_sd, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd, xmax = x + x_sd, color = p_s), width = 0) +
+  labs(x = expression("Δ [CO"[3]*"] (umol kg"^{-1}*")"),
+       y = expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","orange","maroon","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17, "EQU" = 15,"Lab Data, this study" = 22, "BATS" = 10)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_line(aes(x, y),data = subset(dat1,dataset == "BATS"),color = "blue") +
+  geom_point(aes(x, y),data = subset(dat1,dataset == "BATS"),color = "blue") +
+  theme(legend.position = "none")
+
+C
+
+#####
+pretty_sci <- function(x) {
+  parse(text = gsub("e\\+?", " %*% 10^", format(x, scientific = TRUE)))
+}
+
+
+
+  pH + theme(axis.title = element_text(size = 10)) + theme(legend.position = "none") +
+  plot_spacer() +
+  #ehux_acclimation + theme(axis.title = element_text(size = 10),axis.text.y.left = element_blank()) +
+  A + theme(axis.title = element_text(size = 10)) +
+  B + theme(axis.title = element_text(size = 10)) + theme(legend.position = "none") +
+  plot_layout(ncol = 2, axes = "collect",guides = "collect") +
+  #plot_annotation(tag_levels = c("a")) &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+      family = "Helvetica", # or "Arial"
+      size = 14,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+#ggsave("C:/Users/henryholm/OneDrive - Woods Hole Oceanographic Institution/Desktop/Galen_CMIP_Collab/Figures/Fig2_condition_update.pdf",
+#       device = cairo_pdf, width = 5.5, height = 8)
+
+A + B + theme(legend.position = "top")
+
+
+
+ggsave("C:/Users/henryholm/OneDrive - Woods Hole Oceanographic Institution/Desktop/Galen_CMIP_Collab/Figures/Fig2_condition_final.pdf",
+       device = cairo_pdf, width = 5.5, height = 6)
+
+A + theme(legend.position = "left")
+
+ggsave("C:/Users/henryholm/OneDrive - Woods Hole Oceanographic Institution/Desktop/Galen_CMIP_Collab/Figures/Fig3_legend.pdf",
+       device = cairo_pdf, width = 5.5, height = 6)
+
+############### abs version for suppliment
+
+# CMIP6 pre-processing step
+cmip6_wide <- delta %>%
+  subset(biome %in% choose_biomes) 
+
+cmip6_wide$p_s <-  paste(cmip6_wide$scenario, cmip6_wide$period,  sep = " - ")
+
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp585 - 2000s")),"p_s"] <- "Both Scenarios, 2000s"
+cmip6_wide[which(cmip6_wide$p_s %in% c("ssp245 - 2000s")),"p_s"] <- "Both Scenarios, 2000s"
+
+levels_order <- c(
+  "Historical , 1850s",
+  "Both Scenarios, 2000s",
+  "SSP2-4.5 , 2090s",
+  "SSP5-8.5 , 2090s",
+  "BATS", "Lab Data, this study"
+)
+cmip6_wide$p_s <- factor(cmip6_wide$p_s,levels = levels_order)
+
+cmip6_wide <- cmip6_wide %>% rename(aqueous_mean = "areaW_mean_abs_aqueous",
+                      aqueous_sd = "sd_abs_aqueous",
+                      bicarbonate_mean = "areaW_mean_abs_bicarbonate",
+                      bicarbonate_sd = "sd_abs_bicarbonate",
+                      carbonate_mean = "areaW_mean_abs_carbonate",
+                      carbonate_sd = "sd_abs_carbonate",
+                      pH_mean = "areaW_mean_abs_pH",
+                      pH_sd = "sd_abs_pH",
+                      tos_mean = "areaW_mean_abs_tos",
+                      tos_sd = "sd_abs_tos")
+# Define the list of datasets + specs
+dat1 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "HCO3", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "bicarbonate", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "pyco2sys_HCO3",
+       ymult = 1e6,xmult = 1e6, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+
+A <- dat1 %>% # subset(dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd*2, ymax = y + y_sd*2, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd*2, xmax = x + x_sd*2, color = p_s), width = 0) +
+  labs(x = expression("[HCO"[3]*"] (umol kg"^{-1}*")"),
+       y = expression("[CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","#3295a8","orange","maroon","blue","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17,"EQU" = 15, "Lab Data, this study" = 22,"BATS" = 2)) +
+  theme(legend.position = "none") 
+
+A
+
+# Define the list of datasets + specs
+dat2 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "Temp", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "tos", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "Temp.nominal",
+       ymult = 1e6,xmult = 1, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+B <- dat2 %>% #subset(x != 0 & dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd*2, ymax = y + y_sd*2, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd*2, xmax = x + x_sd*2, color = p_s), width = 0) +
+  labs(x = expression("Temperature (C)"),
+       y = expression("[CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","#3295a8","orange","maroon","blue","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17,"EQU" = 15, "Lab Data, this study" = 22,"BATS" = 2)) +
+  geom_line(aes(x, y),data = subset(dat2,dataset == "BATS"),color = "blue") +
+  geom_point(aes(x, y),data = subset(dat2,dataset == "BATS"),color = "blue") +
+  theme(legend.position = "none") 
+
+A + B
+
+B + theme(legend.position = "right")
+
+# Define the list of datasets + specs
+dat3 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "CO3", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "carbonate", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "pyco2sys_CO3",
+       ymult = 1e6,xmult = 1e6, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+C <- dat3 %>% # subset(dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd*2, ymax = y + y_sd*2, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd*2, xmax = x + x_sd*2, color = p_s), width = 0) +
+  labs(x = expression("[CO"[3]*"] (umol kg"^{-1}*")"),
+       y = expression("[CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","#3295a8","orange","maroon","blue","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17,"EQU" = 15, "Lab Data, this study" = 22,"BATS" = 2)) +
+  theme(legend.position = "none") 
+
+
+# Define the list of datasets + specs
+dat4 <- list(
+  list(df = subset(BATS$means, nominal_depth == 0 & decade != "2020s"), dataset = "BATS", y_var = "CO2", x_var = "pH", ymult = 1, xmult = 1),
+  list(df = cmip6_wide, dataset = "CMIP6", y_var = "aqueous", x_var = "pH", keep = c("p_s","type")),
+  list(df = lab_plot, dataset = "Lab Data, this study", y_var = "pyco2sys_CO2", x_var = "pyco2sys_pH_total",
+       ymult = 1e6,xmult = 1, keep = c("Incubator.CO2.ppm.nominal"))
+) %>%
+  refactor_many() %>%
+  mutate(#samp_group = if_else(is.na(samp_group), "", samp_group),
+    p_s = if_else(is.na(p_s), dataset, p_s),
+    p_s = factor(p_s,levels_order),
+    shape = type,
+    shape = if_else(is.na(shape),dataset,shape))
+
+D <- dat4 %>% # subset(dataset != "BATS") %>%
+  ggplot(aes(x, y)) +
+  geom_point(aes(color = p_s, shape = shape), size = 2, na.rm = TRUE) +
+  geom_errorbar(aes(ymin = y - y_sd*2, ymax = y + y_sd*2, color = p_s), width = 0) +
+  geom_errorbar(aes(xmin = x - x_sd*2, xmax = x + x_sd*2, color = p_s), width = 0) +
+  labs(x = "pH (Total Scale)",
+       y = expression("[CO"[2]*"] (umol kg"^{-1}*")")) +
+  scale_color_manual(values = c("grey50","#3295a8","orange","maroon","blue","darkgreen")) +
+  scale_shape_manual(values = c("STPS" = 19,"STSS" = 17,"EQU" = 15, "Lab Data, this study" = 22,"BATS" = 2)) +
+  theme(legend.position = "none") 
+
+A + B + C + D
+
+check_points(co2 = lab_plot$pyco2sys_CO2_mean*1e6,
+             hco3 = lab_plot$pyco2sys_HCO3_mean*1e6,
+             co3 = lab_plot$pyco2sys_CO3_mean*1e6,
+             pH = lab_plot$pyco2sys_pH_total_mean,
+             lab_plot$Temp.nominal_mean,carbon_regions = carbon_regions
+             )
+
+    sd_vec <- c(
+      sd(noice$areaW_mean_abs_aqueous),
+      sd(noice$areaW_mean_abs_bicarbonate),
+      sd(noice$areaW_mean_abs_carbonate),
+      sd(noice$areaW_mean_abs_tos),
+      sd(noice$areaW_mean_abs_pH)
+    )
+
+    d <- sqrt(
+      ((lab_plot$pyco2sys_CO2_mean[1]*1e6 - noice$areaW_mean_abs_aqueous) / sd_vec[1])^2 +
+        ((lab_plot$pyco2sys_HCO3_mean[1]*1e6 - noice$areaW_mean_abs_bicarbonate) / sd_vec[2])^2 +
+        ((lab_plot$pyco2sys_CO3_mean[1]*1e6 - noice$areaW_mean_abs_carbonate) / sd_vec[3])^2 +
+        ((lab_plot$Temp.nominal_mean[1] - noice$areaW_mean_abs_tos) / sd_vec[4])^2 +
+        ((lab_plot$pyco2sys_pH_total_mean[1] - noice$areaW_mean_abs_pH) / sd_vec[5])^2
+    )
+    closest_idx <- which.min(d)
+    noice[closest_idx,c("scenario","biome","period")]
+    
+    d <- sqrt(
+      ((lab_plot$pyco2sys_CO2_mean[2]*1e6 - noice$areaW_mean_abs_aqueous) / sd_vec[1])^2 +
+        ((lab_plot$pyco2sys_HCO3_mean[2]*1e6 - noice$areaW_mean_abs_bicarbonate) / sd_vec[2])^2 +
+        ((lab_plot$pyco2sys_CO3_mean[2]*1e6 - noice$areaW_mean_abs_carbonate) / sd_vec[3])^2 +
+        ((lab_plot$Temp.nominal_mean[2] - noice$areaW_mean_abs_tos) / sd_vec[4])^2 +
+        ((lab_plot$pyco2sys_pH_total_mean[2] - noice$areaW_mean_abs_pH) / sd_vec[5])^2
+    )
+    closest_idx <- which.min(d)
+    noice[closest_idx,c("scenario","biome","period")]
+    noice[order(d),c("scenario","biome","period")]
+    
+lab_plot$pyco2sys_CO2_mean
+
+lab_plot$pyco2sys_CO2_sd*1e6
+lab_plot$pyco2sys_HCO3_sd*1e6
+lab_plot$pyco2sys_CO3_sd*1e6
+lab_plot$pyco2sys_pH_total_sd
+
+ggplot() + geom_histogram(aes(noice$sd_abs_aqueous)) + geom_vline()
+
+OA_ICC %>% subset(CO2_sd != 0) %>% ggplot() + geom_density(aes(CO2_sd))
+
+range(noice$sd_abs_bicarbonate)
+range(noice$sd_abs_carbonate)
+range(noice$sd_abs_pH)
+
+```

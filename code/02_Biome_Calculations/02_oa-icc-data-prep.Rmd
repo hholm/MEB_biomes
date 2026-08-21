@@ -1,0 +1,425 @@
+---
+title: "OA-ICC Data Download and Curation"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+This notebook has code used to fetch and QA/QC data from from the OA-ICC Database for Holm et al. For code that compares and assigns biome conditions to treatments see 'OA-ICC Biome Compare'
+
+Load Packages and set working directory. 
+```{r}
+# needed packages - install if necessary 
+
+library(dplyr) # data reshaping
+library(stringr) # string tools
+library(readr) # read files
+library(purrr) #  functional programming tools
+library(pangaear) # access PANGAEA data
+library(tidyr) # data reshaping
+library(reticulate) # using python functions
+library(ggplot2) # plotting 
+
+library(here) # set wd at cloned repo
+
+```
+
+Get data chunk.
+Fetch Data from PANGAEA (rate limited rate limited on PANGAEA side)
+```{r}
+# import dois 
+loc <- here("data/OA_ICC_Data/OA_ICC_Study_selection.xlsx")
+selection <- readxl::read_xlsx(path = loc, sheet = "Worksheet_header")
+dois <- paste0('10.1594/',selection$Id)
+
+# create python env
+virtualenv_create("pangaeapy-env")
+use_virtualenv("pangaeapy-env", required = TRUE)
+virtualenv_install("pangaeapy-env",packages = c("pangaeapy","pandas"))
+
+# import pangaeapy and pandas
+reticulate::py_require("pangaeapy")
+pangaeapy <- import("pangaeapy")
+pd <- import("pandas")
+
+# function to fetch a dataset by DOI
+import_dataset <- function(doi) {
+  print(doi)
+  # create PanDataSet object
+  ds <- pangaeapy$PanDataSet(doi)
+  
+  # convert Python data frame to R
+  dat <- py_to_r(ds$data)
+  
+  # keep parameters as Python objects for full info
+  params <- ds$parameters
+  
+  list(
+    doi        = doi,
+    data       = dat,
+    parameters = params
+  )
+}
+
+datasets <- lapply(dois,import_dataset) # import
+
+remove(dois,import_dataset,loc,pangaeapy,pd,selection) # clean up
+
+```
+
+QA / QC Chunk 
+This section QA and QC's OA-ICC data. The final output is 'OA_ICC' which matches data in OA_ICC_data_merged.csv
+```{r}
+
+# clean parameter info
+slots <- names(datasets[[1]]$parameters$`Study type`) # get slots
+
+empty_like <- function(x) {
+  if (is.list(x)) {
+    map(x, empty_like)  # recurse on sub-lists
+  } else {
+    list()              # replace non-list values with empty list
+  }
+}
+
+# get a clean framework
+parameters_clean <- map(datasets,~ .x[["parameters"]]) %>% empty_like()
+
+# clean parameter data and make it an R object 
+for (data in 1:length(datasets)) {
+  for (param in names(datasets[[data]][["parameters"]])) {
+    for (slot in slots) {
+      x <- datasets[[data]][["parameters"]][[param]][[slot]]
+      if ("python.builtin.method" %in% class(x)) {
+        parameters_clean[[data]][[param]][[slot]] <- NA
+      }else{
+        parameters_clean[[data]][[param]][[slot]] <- x
+      }
+    }
+  }
+}
+
+# replace
+for (data in 1:length(datasets)) {
+  datasets[[data]][["parameters"]] <-  parameters_clean[[data]]
+}
+
+# further reformat sub objects
+for (data in 1:length(datasets)) {
+  for (param in names(datasets[[data]][["parameters"]])) {
+    for (slot in names(datasets[[data]][["parameters"]][[param]])) {
+      x <- datasets[[data]][["parameters"]][[param]][[slot]]
+      if ("python.builtin.object" %in% class(x)) {
+        slts <- names(datasets[[data]][["parameters"]][[param]][[slot]])
+        replace <- list()
+        for (slt in slts) {
+          replace[[slt]] <- datasets[[data]][["parameters"]][[param]][[slot]][[slt]]
+        }
+        datasets[[data]][["parameters"]][[param]][[slot]] <- replace
+      }else{
+        datasets[[data]][["parameters"]][[param]][[slot]] <- x
+      }
+    }
+  }
+}
+
+# explicitly drop studies that did not return a data.frame (drops 5 studies)
+df_lines <- as.numeric(datasets %>% map(~.x$data %>% nrow))
+sum(df_lines == 0) # 5
+datasets <- datasets[which(df_lines != 0)]
+length(datasets)
+
+# get columns where the methods match "Calculated using seacarb after Nisumaa et al. (2010)"
+# OR it was inputed by Yan, Yang. He didn't all add this methods tag.
+# Meaning it was calculated after the fact for OA-ICC
+
+for (data in 1:length(datasets)) {
+  for (param in names(datasets[[data]][["parameters"]])) {
+    # set false
+    datasets[[data]][["carb_params"]][[param]] <- FALSE
+
+    # check method
+    x <- datasets[[data]][["parameters"]][[param]][["method"]][["name"]]
+    if (!is.null(x)) {
+      if (x == "Calculated using seacarb after Nisumaa et al. (2010)") {
+        datasets[[data]][["carb_params"]][[param]] <- TRUE
+      }
+    }
+    
+    # check PI
+    x <- datasets[[data]][["parameters"]][[param]][["PI"]][['name']]
+    if (!is.null(x)) {
+      if (x == "Yang, Yan") {
+        datasets[[data]][["carb_params"]][[param]] <- TRUE
+      }
+    }
+  }
+}
+
+carb_check <- datasets %>% map(~ {
+  tot <- unlist(.x$carb_params)
+  data.frame(hits = sum(tot), total = length(tot), study = .x$doi)
+}) %>% bind_rows() 
+
+sum(carb_check$hits == 0)
+
+# for treatment params
+for (data in 1:length(datasets)) {
+  for (param in names(datasets[[data]][["parameters"]])) {
+    # set false
+    datasets[[data]][["treat_params"]][[param]] <- FALSE
+    
+    # check long name
+    x <- datasets[[data]][["parameters"]][[param]][["name"]]
+    if (!is.null(x)) {
+      if (str_detect(x,regex("treat", ignore_case = TRUE))) {
+        datasets[[data]][["treat_params"]][[param]] <- TRUE
+      }
+    }
+    # check short name
+    x <- datasets[[data]][["parameters"]][[param]][["shortName"]]
+    if (!is.null(x)) {
+      if (str_detect(x,regex("treat", ignore_case = TRUE))) {
+        datasets[[data]][["treat_params"]][[param]] <- TRUE
+      }
+    }
+  }
+}
+
+treat_check <- datasets %>% map(~ {
+  tot <- unlist(.x$treat_params)
+  data.frame(hits = sum(tot), total = length(tot), study = .x$doi)
+}) %>% bind_rows() 
+
+sum(treat_check$hits == 0)
+
+# if we didn't have any treatment column, make CO2 ion conc the treatment 
+no_treat_no_co2 <- c()
+for (data in 1:length(datasets)) {
+  if((treat_check$hits == 0)[data]){
+    w <- which(unlist(datasets[[data]]$carb_params) & str_detect(names(datasets[[data]]$carb_params),"^CO2$|^CO2_2$|^CO2_3$"))
+    if(length(w) == 0){
+        print(c("ERROR in",data))
+        no_treat_no_co2 <- c(no_treat_no_co2,data)
+      }else{
+        datasets[[data]]$treat_params[w[1]] <- TRUE # set at true in treat params
+    }
+  }
+}
+
+# for temperature params
+for (data in 1:length(datasets)) {
+  for (param in names(datasets[[data]][["parameters"]])) {
+    # set false
+    datasets[[data]][["temp_params"]][[param]] <- FALSE
+    
+    # check short name
+    x <- datasets[[data]][["parameters"]][[param]][["shortName"]]
+    if (!is.null(x)) {
+      if (str_detect(x,regex("temp", ignore_case = TRUE))) {
+        datasets[[data]][["temp_params"]][[param]] <- TRUE
+      }
+    }
+  }
+}
+
+temp_check <- datasets %>% map(~ {
+  tot <- unlist(.x$temp_params)
+  data.frame(hits = sum(tot), total = length(tot), study = .x$doi)
+}) %>% bind_rows() 
+
+sum(temp_check$hits == 0)
+
+# also pull any column that includes "treat" or "treatment" in short or long name
+# NOTE - get long name treatment columns too
+carb_only <- map(datasets, function(ds) {
+  doi <- ds$doi
+  
+  # columns listed in carb_params
+  sel_cols <- names(ds$carb_params)[unlist(ds$carb_params)]
+  
+  # pull comments safely as character vector
+  sel_cols_comment <- vapply(
+    ds$parameters[unlist(ds$carb_params)],
+    function(x) {
+      comment <- if (!is.null(x$comment)) x$comment else ""
+      # remove "total scale" and commas
+      comment <- gsub("total scale", "", comment, ignore.case = TRUE)
+      comment <- gsub(", ?", "", comment)
+      # trim whitespace
+      comment <- trimws(comment)
+      # if empty, set to "No Comment"
+      if (comment == "") "No Comment" else comment
+    },
+    FUN.VALUE = character(1)
+  )
+  names(sel_cols_comment) <- sel_cols
+  
+  # any columns flagged in treat_params
+  treat_cols <- names(ds$treat_params)[unlist(ds$treat_params)]
+  
+  # any columns flagged in temp_params
+  temp_cols <- names(ds$temp_params)[unlist(ds$temp_params)]
+  
+  # union of both
+  keep_cols <- union(union(sel_cols, treat_cols), temp_cols)
+
+  out <- ds$data[, keep_cols, drop = FALSE]
+  
+  # rename treat cols with prefix, if its CO2 duplicate the column so we don't loose it
+  treat_detected <- names(out)[names(out) %in% treat_cols]
+  co2_pattern <- "^CO2$|^CO2_2$|^CO2_3$"
+  for (nm in treat_detected) {
+    if (grepl(co2_pattern, nm)) {
+      # duplicate column with prefixed name
+      out[[paste0("DETECTED_TREAT_", nm)]] <- out[[nm]]
+    } else {
+      # simple rename
+      names(out)[names(out) == nm] <- paste0("DETECTED_TREAT_", nm)
+    }
+  }
+  
+  # add FINAL_TREAT if treatment columns exist
+  detected_cols <- names(out)[startsWith(names(out), "DETECTED_TREAT_")]
+  if (length(detected_cols) > 0) {
+    out <- out %>%
+      unite("FINAL_TREAT", all_of(detected_cols),
+            sep = "-", remove = FALSE, na.rm = FALSE)
+    
+    # drop detected treat columns after creating FINAL_TREAT
+    out <- out[, !names(out) %in% detected_cols, drop = FALSE]
+  } else {
+    out$FINAL_TREAT <- rep(NA_character_, nrow(out))
+  }
+  
+  # split the data frame into sub-data frames by `sel_cols_comment`
+  split_cols <- intersect(sel_cols, names(out))
+  
+  if (length(split_cols) == 0) {
+    nested <- list(NO_MATCH = out)
+  } else {
+    grouped <- split(split_cols, sel_cols_comment[split_cols])
+    
+    # make nested list of data frames
+    nested <- map(grouped, function(cols) {
+      out[, c(cols, setdiff(names(out), sel_cols)), drop = FALSE]
+    })
+  }
+  
+  nested
+}) |> set_names(map_chr(datasets, "doi"))
+
+
+
+# Recursive function to rename columns in nested lists
+drop_numeric_suffix <- function(x) {
+  if (is.data.frame(x)) {
+    names(x) <- str_remove(names(x), "_\\d+$")  # remove numeric suffix
+    return(x)
+  } else if (is.list(x)) {
+    return(map(x, drop_numeric_suffix))          # recurse into sublists
+  } else {
+    return(x)  # leave other objects untouched
+  }
+}
+
+# Apply to carb_only
+carb_only <- drop_numeric_suffix(carb_only)
+
+# Recursive function to check duplicates in nested lists
+check_duplicate_cols <- function(x, path = character()) {
+  if (is.data.frame(x)) {
+    dup_cols <- names(x)[duplicated(names(x))]
+    if (length(dup_cols) > 0) {
+      return(list(path = path, duplicates = dup_cols))
+    } else {
+      return(NULL)
+    }
+  } else if (is.list(x)) {
+    # recurse into sublists
+    res <- map2(x, names(x), ~check_duplicate_cols(.x, c(path, .y)))
+    return(compact(res))
+  } else {
+    return(NULL)
+  }
+}
+
+# Apply to carb_only
+duplicates_found <- check_duplicate_cols(carb_only)
+dups <- map_depth(duplicates_found,.depth = 2, ~ .x[["duplicates"]])
+names(duplicates_found)
+
+# It seems like they didn't carry over treatment day to the seacarb columns for these datasets. Or there is extra Temperature data. Fixing the temperature one, dropping the carbonate ones:
+
+carb_only <- map_depth(carb_only,.depth = 2, function(x) {
+  nm <- names(x) # get names
+  temp_idx <- which(nm == "Temp") #index that are "Temp"
+  if (length(temp_idx) > 1) {
+    nm[temp_idx[-1]] <- paste0("Temp", seq_along(temp_idx)[-1])
+  }
+  names(x) <- nm
+  x
+})
+
+# Check duplicates again
+duplicates_found <- check_duplicate_cols(carb_only)
+dups <- map_depth(duplicates_found,.depth = 2, ~ .x[["duplicates"]])
+names(duplicates_found)
+
+# only three studies now - remove
+carb_only <- carb_only[!names(carb_only) %in% names(duplicates_found)]
+
+# combine time vars
+carb_merged <- map(carb_only,~ bind_rows(.x,.id = "TIME_TREAT")) %>% bind_rows(.id = "Study_DOI")
+carb_merged <- carb_merged %>% mutate(DIC_calc = CO2 + `[HCO3]-` +`[CO3]2-`)
+
+# Duplicate data for multiple Temperature conditions
+carb_merged <- carb_merged %>% pivot_longer(c(Temp,Temp2,Temp3),names_to = "temp_replication",values_to = "Temp",values_drop_na = T)
+
+# recalc total pH with correct parameters
+carb_merged[!is.na(carb_merged$Temp),"pH_recalc"] <- carb_merged %>% subset(!is.na(Temp)) %$% seacarb::carb(flag = 10,var1 = `[HCO3]-`/1e6, `[CO3]2-`/1e6,T = Temp, pHscale = "T") %>% pull(pH)
+
+# treat multiple reported temperatures as seperate treatments
+carb_merged <- carb_merged %>%
+  mutate(FINAL_TREAT = if_else(temp_replication %in% c("Temp2","Temp3"),
+                               true = paste(FINAL_TREAT,temp_replication,sep = ", "),
+                               false = FINAL_TREAT))
+
+carb_merged_sum <- carb_merged %>%
+  group_by(FINAL_TREAT,TIME_TREAT,Study_DOI) %>% # leave out time treat to average in
+  summarise(CO2_mean = mean(CO2, na.rm = T),
+            HCO3_mean = mean(`[HCO3]-`, na.rm = T),
+            CO3_mean = mean(`[CO3]2-`, na.rm = T),
+            Temp_mean = mean(Temp, na.rm = T),
+            DIC_mean = mean(DIC_calc, na.rm = T),
+            pHT_mean = mean(pH_recalc,na.rm = T),
+            
+            Temp_sd = sd(Temp, na.rm = T),
+            CO2_sd = sd(CO2, na.rm = T),
+            CO3_sd = sd(`[CO3]2-`, na.rm = T),
+            HCO3_sd = sd(`[HCO3]-`, na.rm = T),
+            DIC_sd = sd(DIC_calc, na.rm = T),
+            pHT_sd = sd(pH_recalc,na.rm = T)
+            ) %>% ungroup()
+
+OA_ICC <- as.data.frame(carb_merged_sum)
+
+# last screen step - remove treatments without CO2_mean, HCO3_mean, CO3_mean, or pHT_mean
+length(unique(OA_ICC$Study_DOI))
+nrow(OA_ICC)
+
+OA_ICC <- OA_ICC %>% subset(!(is.na(CO2_mean) | is.na(HCO3_mean) | is.na(CO3_mean) | is.na(pHT_mean)))
+
+length(unique(OA_ICC$Study_DOI))
+nrow(OA_ICC)
+
+# clean up
+rm(list = setdiff(ls(), c("datasets","OA_ICC")))
+
+# list final stats
+summary(OA_ICC %>% select(FINAL_TREAT,TIME_TREAT,Study_DOI,CO2_mean,
+                          HCO3_mean,CO3_mean,Temp_mean,DIC_mean,pHT_mean))
+
+```

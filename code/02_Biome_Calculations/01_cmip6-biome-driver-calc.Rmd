@@ -1,0 +1,666 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+Load Data and Packages
+```{r}
+# load packages
+library(tidyverse) # data processing, plotting
+library(tidyterra) # spatial data processing
+library(terra) # spatial data processing
+library(rnaturalearth) # spatial data processing
+library(purrr) # Functional Programming
+library(tidyr) # data processing
+library(seacarb) # carbonate calculations
+library(errors) # error propagation
+library(patchwork) # plotting
+library(ggplot2) # plotting
+library(magrittr) # data processing
+library(furrr) # parallel
+library(data.table) # data processing
+
+theme_set(theme_minimal())
+
+base_loc <- "C:/Users/henryholm/OneDrive - Woods Hole Oceanographic Institution/Desktop/Galen_CMIP_Collab/raw_data/"
+
+# Biome data
+biomes <- terra::rast(paste0(base_loc, "Time_Varying_Biomes.nc"))
+biomes <- biomes[[c("MeanBiomes")]]
+crs(biomes) <- "+proj=longlat +ellips=WGS84"
+biomes_vec <- as.polygons(biomes$MeanBiomes,extent = F,na.rm =F)
+biomes_vec$MeanBiomes <- c(
+  "No Biome",
+  "NP_ICE", "NP_SPSS", "NP_STSS", "NP_STPS",
+  "Pac_EQU_W", "Pac_EQU_E", "SP_STPS", "NA_ICE",
+  "NA_SPSS", "NA_STSS", "NA_STPS", "Atl_EQU",
+  "SA_STPS", "IND_STPS", "SO_STSS", "SO_SPSS",
+  "SO_ICE"
+)
+
+# drop ice regions, land, coasts
+biomes_vec <- biomes_vec[!biomes_vec$MeanBiomes %in% c("No Biome","NP_ICE","NA_ICE","SO_ICE"),]
+
+ggplot(biomes_vec) + geom_spatvector(aes(fill = MeanBiomes)) + geom_spatvector_label(aes(label = MeanBiomes))
+
+# area weight data
+weights <- terra::rast(paste0(base_loc, "area_weights_km2.nc"))
+
+w_df <- weights %>% as.data.frame(xy = T) %>%
+  pivot_longer(
+    cols = -c(x, y),
+    values_to = "area_km2"
+  ) %>% select(-name) %>% as.data.table()
+
+# Set base directory and list NetCDF files
+base_dir <- "C:/Users/henryholm/Documents/IPCC_Galen_Data/CMIP-6/decade_averages/monthly/"
+all_files <- list.files(base_dir, full.names = TRUE, recursive = TRUE, pattern = "\\.nc$")
+all_files <- all_files[!grepl("ensemble", all_files, ignore.case = TRUE)]
+
+# Extract metadata from filenames
+file_info <- tibble::tibble(
+  file = all_files,
+  model = str_extract(basename(all_files), "(?<=timeseries_)[^_]+"),
+  scenario = str_extract(file, "ssp[0-9]+"),
+  variable = str_extract(basename(all_files), "^[^_]+")
+)
+
+# Initialize output list
+cmip6 <- list()
+
+for (i in 1:nrow(file_info)) {
+  cmip6[[file_info[[i, "model"]]]][[file_info[[i, "scenario"]]]][[file_info[[i, "variable"]]]] <- file_info[[i, "file"]]
+}
+
+cmip6 <- map_depth(cmip6, 3, terra::rast)
+
+# max months for 'bloom' - get formal analysis from Anna
+
+bloom_months <- tibble::tibble(
+  biome = c(
+    "NP_SPSS",
+    "NP_STSS",
+    "NA_SPSS",
+    "NA_STSS",
+    "SO_STSS",
+    "SO_SPSS"
+  ),
+  month = list(
+    c(5, 6, 7),
+    c(4, 5, 6),
+    c(6, 7, 8),
+    c(4, 5, 6),
+    c(12, 1, 2),
+    c(12, 1, 2)
+  )
+)
+
+# Remove uneeded temp objects
+remove(i, all_files,base_dir,base_loc,file_info)
+
+## functions 
+flatten_for_plot <- function(x){
+    # Flatten to a single list
+    x <- list_flatten(x) %>% list_flatten()
+    
+    # split them
+    x <- as.data.frame(data.table::rbindlist(x, idcol = "id"))
+    
+    matches <- str_match(x$id, "^([^_]+)_([^_]+)_(.+)$")
+    x$scenario <- matches[, 2]
+    x$var <- matches[, 3]
+    x$biome <- matches[, 4]
+    
+    matches <- str_match(x$biome, "^([^_]+)_([^_]+)")
+    x$loc <- matches[, 2]
+    x$type <- matches[, 3]
+    
+    remove(matches)
+    return(x)
+}
+
+```
+
+CMIP-6 Abs and delta calculation
+```{r}
+# Pre-split the SpatVector by biome
+biome_list <- split(biomes_vec, biomes_vec$MeanBiomes)
+
+index_model <- names(cmip6)
+index_sen   <- names(cmip6[[1]])
+index_vars  <- names(cmip6[[1]][[1]])
+index_zone  <- names(biome_list)
+
+fast_spatraster_to_long_dt <- function(x) {
+  dt <- as.data.table(x, xy = TRUE)
+  id_vars      <- c("x", "y")
+  measure_vars <- setdiff(names(dt), id_vars)
+  dt <- melt(dt, id.vars = id_vars, measure.vars = measure_vars,
+             variable.name = "key", value.name = "value")
+  dt[, c("variable", "month") := tstrsplit(key, "_(?=[^_]+$)", perl = TRUE)]
+  dt[, key := NULL]
+  return(dt)
+}
+
+add_period <- function(dt) {
+  dt[month %in% as.character(1:12),  period := "1850s"]
+  dt[month %in% as.character(13:24), period := "2000s"]
+  dt[month %in% as.character(25:36), period := "2090s"]
+  dt[, month := as.character(((as.integer(month) - 1) %% 12) + 1)]
+  dt
+}
+
+key_cols <- c("x", "y", "month", "model", "variable")
+
+# Initialise output containers
+cmip6_df_means <- list(
+  model       = list(),
+  year        = list(),
+  spatial     = list(),
+  total       = list(),
+  total_bloom = list(),
+  seasonal    = list(),
+  keep_spat   = list()
+)
+
+cmip6_df_anomaly_means <- list(
+  total    = list(),
+  seasonal = list()
+)
+
+for (sen in index_sen) {
+  for (vars in index_vars) {
+    for (zone in index_zone) {
+
+      # --- 1. Build combined data.table across models ---
+      model_chunks <- vector("list", length(index_model))
+      names(model_chunks) <- index_model
+
+      for (model in index_model) {
+        cat(sen, model, vars, zone, "\n")
+
+        r  <- mask(cmip6[[model]][[sen]][[vars]], biome_list[[zone]])
+        dt <- fast_spatraster_to_long_dt(r)
+        rm(r); gc()
+
+        dt <- add_period(dt)
+        dt[, model := model]
+        dt <- dt[w_df, on = c("x", "y"), nomatch = 0]
+        dt <- dt[!is.na(variable)]
+
+        model_chunks[[model]] <- dt
+        rm(dt)
+      }
+
+      combined <- data.table::rbindlist(model_chunks, use.names = TRUE, fill = TRUE)
+      rm(model_chunks); gc()
+
+      # --- 2. Regular aggregations ---
+
+      cmip6_df_means$model[[sen]][[vars]][[zone]] <- combined[, .(
+        model_mean = mean(value, na.rm = TRUE),
+        model_sd   = sd(value, na.rm = TRUE),
+        model_min  = min(value, na.rm = TRUE),
+        model_max  = max(value, na.rm = TRUE),
+        model_se   = sd(value, na.rm = TRUE) / sqrt(.N),
+        n          = .N 
+      ), by = .(x, y, month, period)]
+
+      cmip6_df_means$year[[sen]][[vars]][[zone]] <- combined[, .(
+        year_mean = mean(value, na.rm = TRUE),
+        year_sd   = sd(value, na.rm = TRUE),
+        year_min  = min(value, na.rm = TRUE),
+        year_max  = max(value, na.rm = TRUE),
+        year_se   = sd(value, na.rm = TRUE) / sqrt(.N),
+        n         = .N 
+      ), by = .(x, y, model, period)]
+
+      cmip6_df_means$spatial[[sen]][[vars]][[zone]] <- combined[, .(
+        spat_mean       = mean(value, na.rm = TRUE),
+        spat_areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+        spat_sd         = sd(value, na.rm = TRUE),
+        spat_min        = min(value, na.rm = TRUE),
+        spat_max        = max(value, na.rm = TRUE),
+        spat_se         = sd(value, na.rm = TRUE) / sqrt(.N),
+        n               = .N 
+      ), by = .(model, month, period)]
+
+      cmip6_df_means$total[[sen]][[vars]][[zone]] <- combined[, .(
+        mean       = mean(value, na.rm = TRUE),
+        areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+        sd         = sd(value, na.rm = TRUE),
+        min        = min(value, na.rm = TRUE),
+        max        = max(value, na.rm = TRUE),
+        se         = sd(value, na.rm = TRUE) / sqrt(.N),
+        n          = .N 
+      ), by = .(period)]
+
+      if (zone %in% bloom_months$biome) {
+        bloom <- unlist(bloom_months[bloom_months$biome == zone, "month"][[1]])
+        cmip6_df_means$total_bloom[[sen]][[vars]][[zone]] <- combined[month %in% bloom, .(
+          mean       = mean(value, na.rm = TRUE),
+          areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+          sd         = sd(value, na.rm = TRUE),
+          min        = min(value, na.rm = TRUE),
+          max        = max(value, na.rm = TRUE),
+          se         = sd(value, na.rm = TRUE) / sqrt(.N),
+          n          = .N
+        ), by = .(period)]
+      }
+
+      cmip6_df_means$seasonal[[sen]][[vars]][[zone]] <- combined[, .(
+        seas_mean       = mean(value, na.rm = TRUE),
+        seas_areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+        seas_sd         = sd(value, na.rm = TRUE),
+        seas_min        = min(value, na.rm = TRUE),
+        seas_max        = max(value, na.rm = TRUE),
+        seas_se         = sd(value, na.rm = TRUE) / sqrt(.N),
+        n               = .N
+      ), by = .(month, period)]
+
+      cmip6_df_means$keep_spat[[sen]][[vars]][[zone]] <- combined[, .(
+        keep_spat_mean = mean(value, na.rm = TRUE),
+        keep_spat_sd   = sd(value, na.rm = TRUE),
+        keep_spat_min  = min(value, na.rm = TRUE),
+        keep_spat_max  = max(value, na.rm = TRUE),
+        keep_spat_se   = sd(value, na.rm = TRUE) / sqrt(.N),
+        n              = .N
+      ), by = .(x, y, period, area_km2)]
+
+      # --- 3. Anomalies ---
+      # Extract 2000s baseline once and reuse for both anomaly comparisons
+      dt_2000s <- combined[period == "2000s", .SD, .SDcols = c(key_cols, "value")]
+      setnames(dt_2000s, "value", "value_2000s")
+
+      # Merge baseline into 1850s and 2090s, compute anomalies, bind
+      a_1850 <- merge(combined[period == "1850s"], dt_2000s, by = key_cols)
+      a_1850[, `:=`(value = value - value_2000s, period = "1850s-2000s")][, value_2000s := NULL]
+
+      a_2090 <- merge(combined[period == "2090s"], dt_2000s, by = key_cols)
+      a_2090[, `:=`(value = value - value_2000s, period = "2090s-2000s")][, value_2000s := NULL]
+
+      rm(dt_2000s)
+
+      anomaly <- rbind(a_1850, a_2090)
+      rm(a_1850, a_2090)
+
+      # Anomaly aggregations
+      cmip6_df_anomaly_means$total[[sen]][[vars]][[zone]] <- anomaly[, .(
+        mean       = mean(value, na.rm = TRUE),
+        areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+        sd         = sd(value, na.rm = TRUE),
+        min        = min(value, na.rm = TRUE),
+        max        = max(value, na.rm = TRUE),
+        se         = sd(value, na.rm = TRUE) / sqrt(.N),
+        n          = .N
+      ), by = .(period)]
+
+      cmip6_df_anomaly_means$seasonal[[sen]][[vars]][[zone]] <- anomaly[, .(
+        seas_mean       = mean(value, na.rm = TRUE),
+        seas_areaW_mean = weighted.mean(value, area_km2, na.rm = TRUE),
+        seas_sd         = sd(value, na.rm = TRUE),
+        seas_min        = min(value, na.rm = TRUE),
+        seas_max        = max(value, na.rm = TRUE),
+        seas_se         = sd(value, na.rm = TRUE) / sqrt(.N),
+        n               = .N
+      ), by = .(month, period)]
+
+      rm(anomaly, combined); gc()
+    }
+  }
+}
+
+# Clean up source data
+rm(cmip6, w_df, weights); gc()
+
+# Drop NULL entries from total_bloom
+cmip6_df_means$total_bloom <- cmip6_df_means$total_bloom |>
+  modify_depth(3, ~ if (is.atomic(.x) && length(.x) == 1 && is.na(.x)) NULL else .x) |>
+  modify_depth(2, discard, is.null) |>
+  modify_depth(1, discard, is.null)
+
+```
+
+### Plotting Section ###
+
+Figure 1 - Delta Scaling
+```{r}
+
+# Totals Plot
+
+delta <- flatten_for_plot(cmip6_df_anomaly_means$total)
+abs <- flatten_for_plot(cmip6_df_means$total)
+
+delta[which(delta$period == "1850s-2000s"),"period"] <- "1850s"
+delta[which(delta$period == "2090s-2000s"),"period"] <- "2090s"
+
+delta <- full_join(delta,abs,
+                   by = join_by(id,period,scenario,var,biome,loc,type),
+                   suffix = c("_delta","_abs")
+                   )
+
+delta <- delta %>%
+  pivot_wider(
+    id_cols = c(scenario, biome, loc, type, period),
+    names_from = var, values_from = c(areaW_mean_delta, sd_delta,areaW_mean_abs,sd_abs,min_delta,max_delta)
+  )
+
+delta$type <- factor(delta$type,levels = c("EQU","STPS","STSS","SPSS","ICE"))
+
+delta$p_s <-  paste(delta$scenario, delta$period,  sep = " - ")
+
+delta[which(delta$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+delta[which(delta$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+delta[which(delta$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+delta[which(delta$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+
+plot_delta <- function(data, var_x_suffix, var_y_suffix, y_lab = NA, x_lab = NA) {
+  
+  # Check for missing or NA character labels
+  if (missing(y_lab) || (is.character(y_lab) && length(y_lab) == 1 && is.na(y_lab))) {
+    y_lab <- var_y_suffix
+  }
+  if (missing(x_lab) || (is.character(x_lab) && length(x_lab) == 1 && is.na(x_lab))) {
+    x_lab <- var_x_suffix
+  }
+  
+  x_col <- paste0("areaW_mean_delta_", var_x_suffix)
+  y_col <- paste0("areaW_mean_delta_", var_y_suffix)
+  sd_x_col <- paste0("sd_delta_", var_x_suffix)
+  sd_y_col <- paste0("sd_delta_", var_y_suffix)
+  
+  x_sym <- rlang::sym(x_col)
+  y_sym <- rlang::sym(y_col)
+  sd_x_sym <- rlang::sym(sd_x_col)
+  sd_y_sym <- rlang::sym(sd_y_col)
+  
+  ggplot(
+    data %>% subset(type != "ICE" & period != "2000s"),
+    aes(x = !!x_sym, y = !!y_sym, color = p_s,shape = type)
+  ) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_vline(xintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_point(size = 2) +
+    geom_errorbar(aes(
+      ymin = !!y_sym - !!sd_y_sym,
+      ymax = !!y_sym + !!sd_y_sym
+    ),linewidth = 0.1) +
+    geom_errorbarh(aes(
+      xmin = !!x_sym - !!sd_x_sym,
+      xmax = !!x_sym + !!sd_x_sym
+    ),linewidth = 0.1) +
+    labs(
+      y = if (is.expression(y_lab)) y_lab else paste0(y_lab),
+      x = if (is.expression(x_lab)) x_lab else paste0(x_lab),
+      color = "Period and Scenario", shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50", "orange", "maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+# set axis labels 
+dhco3 <- expression(paste("Δ [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+dco2 <- expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")
+dco3 <- expression(paste("Δ [CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+dtemp <- "Δ Temperature (°C)"
+dpco2 <- expression("Δ pCO"[2]*"")
+
+# get legend
+legend <- ggpubr::get_legend(plot_delta(delta,"tos","pCO2",x_lab = dtemp,y_lab = dpco2) + theme(legend.position = "top"))
+
+fig1_bottom <- (
+  plot_delta(delta,"tos","pCO2", x_lab = dtemp, y_lab = dpco2) +
+    plot_delta(delta,"aqueous","pCO2", x_lab = dco2, y_lab = dpco2) + 
+    plot_delta(delta,"bicarbonate","pCO2", x_lab = dhco3, y_lab = dpco2) + 
+    plot_delta(delta,"carbonate","pCO2", x_lab = dco3, y_lab = dpco2) +
+    plot_delta(delta,"pH","pCO2", x_lab = "Δ pH (Total Scale)", y_lab = dpco2) +
+    plot_delta(delta,"dic","pCO2", x_lab = expression("Δ DIC (umol kg"^{-1}*")"), y_lab = dpco2) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  #plot_annotation(tag_levels = list(c("G", "H", "I","J", "K", "L"))) 
+  theme(
+    legend.position = "none",
+    plot.tag = element_text(
+      face = "bold",
+      #family = "Arial",
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+```
+
+Write Annualized Values
+```{r}
+
+delta <- flatten_for_plot(cmip6_df_anomaly_means$total)
+abs <- flatten_for_plot(cmip6_df_means$total)
+
+delta[which(delta$period == "1850s-2000s"),"period"] <- "1850s"
+delta[which(delta$period == "2090s-2000s"),"period"] <- "2090s"
+
+delta <- full_join(delta,abs,
+                   by = join_by(id,period,scenario,var,biome,loc,type),
+                   suffix = c("_delta","_abs")
+                   )
+
+write.csv(delta, file = here("data/product_data_processed/long_annual_biomes_values.csv"))
+
+delta <- delta %>%
+  pivot_wider(
+    id_cols = c(scenario, biome, loc, type, period, n_abs),
+    names_from = var, values_from = c(areaW_mean_abs,sd_abs,min_abs,max_abs,se_abs,
+                                      areaW_mean_delta,sd_delta,min_delta,max_delta,se_delta)
+  ) %>% rename(n = n_abs)
+
+delta$type <- factor(delta$type,levels = c("EQU","STPS","STSS","SPSS","ICE"))
+
+delta$p_s <-  paste(delta$scenario, delta$period,  sep = " - ")
+
+# drop identical values
+delta <- delta %>% subset(!(period %in% c("1850s","2000s") & scenario == "ssp585"))
+delta[which(delta$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+delta[which(delta$p_s %in% c("ssp245 - 2000s","ssp585 - 2000s")),"p_s"] <- "Modern , 2000s"
+delta[which(delta$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+delta[which(delta$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+
+summary(delta)
+
+write.csv(delta, file = here("data/product_data_processed/wide_annual_biomes_values.csv"))
+
+```
+
+Write Seasonal Values
+```{r}
+
+delta <- flatten_for_plot(cmip6_df_anomaly_means$seasonal)
+abs <- flatten_for_plot(cmip6_df_means$seasonal)
+
+delta[which(delta$period == "1850s-2000s"),"period"] <- "1850s"
+delta[which(delta$period == "2090s-2000s"),"period"] <- "2090s"
+
+delta <- full_join(delta,abs,
+                   by = join_by(id,period,scenario,var,biome,loc,type,month,n),
+                   suffix = c("_delta","_abs")
+                   )
+
+write.csv(delta, file = here("data/product_data_processed/long_seas_biomes_values.csv"))
+
+delta <- delta %>%
+  pivot_wider(
+    id_cols = c(scenario, biome, loc, type, period, month, n ),
+    names_from = var, values_from = c(seas_areaW_mean_abs, seas_sd_abs, seas_min_abs, seas_max_abs, seas_se_abs,
+                                      seas_areaW_mean_delta, seas_sd_delta, seas_min_delta, seas_max_delta, seas_se_delta)
+  )
+
+delta$type <- factor(delta$type,levels = c("EQU","STPS","STSS","SPSS","ICE"))
+
+delta$p_s <-  paste(delta$scenario, delta$period,  sep = " - ")
+
+# drop identical values
+delta <- delta %>% subset(!(period %in% c("1850s","2000s") & scenario == "ssp585"))
+delta[which(delta$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+delta[which(delta$p_s %in% c("ssp245 - 2000s","ssp585 - 2000s")),"p_s"] <- "Modern , 2000s"
+delta[which(delta$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+delta[which(delta$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+
+
+write.csv(delta, file = here("data/product_data_processed/wide_seas_biomes_values.csv"))
+
+```
+
+Figure 1 - Absolute Conditions
+```{r}
+# extract data
+abs <- flatten_for_plot(cmip6_df_means$total)
+
+# some refactoring
+abs <- abs %>%
+  pivot_wider(
+    id_cols = c(scenario, biome, loc, type, period),
+    names_from = var, values_from = c(areaW_mean, sd, min, max)
+  ) 
+
+abs <- delta
+
+abs$type <- factor(abs$type,levels = c("EQU","STPS","STSS","SPSS","ICE"))
+
+abs$p_s <-  paste(abs$scenario, abs$period,  sep = " - ")
+
+abs[which(abs$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+abs[which(abs$p_s %in% c("ssp245 - 1850s","ssp585 - 1850s")),"p_s"] <- "Historical , 1850s"
+abs[which(abs$p_s %in% c("ssp585 - 2090s")),"p_s"] <- "SSP5-8.5 , 2090s"
+abs[which(abs$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
+abs[which(abs$p_s %in% c("ssp585 - 2000s")),"p_s"] <- "Modern , 2000s"
+abs[which(abs$p_s %in% c("ssp245 - 2000s")),"p_s"] <- "Modern , 2000s"
+
+abs$p_s <- factor(abs$p_s,levels = c("Historical , 1850s",
+                                     "Modern , 2000s",
+                                     "SSP2-4.5 , 2090s",
+                                     "SSP5-8.5 , 2090s"))
+
+# helper function
+plot_abs_data <- function(data, 
+                          xvar, yvar,
+                          xlab = NULL, ylab = NULL,sdevs = 1) {
+  
+  # Capture variable names
+  x_name <- rlang::as_name(rlang::enquo(xvar))
+  y_name <- rlang::as_name(rlang::enquo(yvar))
+  
+  # find sd columns
+  sd_x_name <- paste0("sd_", sub("^areaW_mean_", "", x_name))
+  sd_y_name <- paste0("sd_", sub("^areaW_mean_", "", y_name))
+  
+  # Check if they exist, else set NULL
+  sd_x <- if (sd_x_name %in% names(data)) rlang::sym(sd_x_name) else NULL
+  sd_y <- if (sd_y_name %in% names(data)) rlang::sym(sd_y_name) else NULL
+  
+  ggplot_data <- data %>%
+    subset(type != "ICE") %>%
+    group_by(scenario, biome, loc, type, period) %>%
+    ungroup()
+  
+  p <- ggplot(ggplot_data, aes(x = {{ xvar }}, y = {{ yvar }},
+                               color = p_s, shape = type)) +
+    geom_point()
+  
+  # Add error bars if found
+  if (!is.null(sd_y)) {
+    p <- p + geom_errorbar(aes(ymin = {{ yvar }} - !!sd_y*sdevs,
+                               ymax = {{ yvar }} + !!sd_y*sdevs),
+                           linewidth = 0.1)
+  }
+  if (!is.null(sd_x)) {
+    p <- p + geom_errorbar(aes(xmin = {{ xvar }} - !!sd_x*sdevs,
+                               xmax = {{ xvar }} + !!sd_x*sdevs),
+                           linewidth = 0.1)
+  }
+  
+  p +
+    labs(
+      x = ifelse(is.null(xlab), x_name, xlab),
+      y = ifelse(is.null(ylab), y_name, ylab),
+      color = "Period and Scenario", 
+      shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50","#3295a8","orange","maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+hco3 <- expression(paste("[HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+co2 <- expression("[CO"[2]*"] (umol kg"^{-1}*")")
+co3 <- expression(paste("[CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+temp <- "Temperature (°C)"
+pco2 <- expression("pCO"[2]*"")
+
+fig1_top <- (
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_tos, yvar = areaW_mean_abs_pCO2,
+    xlab = temp, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_aqueous, yvar = areaW_mean_abs_pCO2,
+    xlab = co2, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_bicarbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = hco3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_carbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = co3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_pH, yvar = areaW_mean_abs_pCO2,
+    xlab = "pH (Total Scale)", ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_abs_dic, yvar = areaW_mean_abs_pCO2,
+    xlab = expression("DIC (umol kg"^{-1}*")"), ylab = pco2
+  ) + theme(legend.position = "none") + scale_x_continuous(n.breaks = 4) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  #plot_annotation(tag_levels = list(c("A","B","C","D","E","F"))) 
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+     # family = "Arial", 
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+fig1_ab_supp <- (
+  plot_abs_data(abs,
+    xvar = areaW_mean_pH, yvar = areaW_mean_pCO2,
+    xlab = "pH (Total Scale)", ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(abs,
+    xvar = areaW_mean_dic, yvar = areaW_mean_pCO2,
+    xlab = expression("DIC (umol kg"^{-1}*")"), ylab = pco2
+  ) + theme(legend.position = "none") 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") +
+  #plot_annotation(tag_levels = list(c("A","B"))) 
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+      #family = "Arial",  
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+```
+
+Figure 2 - Complete Plot
+```{r fig.height=4.5, fig.width=11}
+(fig1_top / fig1_bottom) + plot_annotation(tag_levels = "A")
+```
+

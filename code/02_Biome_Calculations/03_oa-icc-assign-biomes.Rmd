@@ -1,0 +1,498 @@
+---
+title: "OA-ICC Biome Condition Assignment"
+output:
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+This data compares annual biome averages and OA-ICC treatments to assess which biome average the data is closest too. It also provide some summary. Final data.frame output matches OA_ICC_data_final.csv. 
+
+Load Packages and set working directory. 
+```{r,warning=F}
+# needed packages - install if necessary 
+
+library(tidyverse) # data formatting
+library(ggplot2) # plotting 
+library(concaveman) # calc hulls
+library(sf)
+library(here) # set wd at cloned repo
+library(patchwork) #plotting
+
+biomes <- read.csv(here("data/product_data_processed/wide_annual_biomes_values.csv")) %>% as_tibble() # load annual biome data REFACTOR THIS
+OA_ICC <-  read.csv(here("data/OA_ICC_Data/OA_ICC_data_merged.csv")) # load qc-ed OA-ICC data
+OA_ICC <- as.data.frame(OA_ICC) # insure correct class 
+
+# no ice biomes
+#noice <- delta %>% subset(type != "ICE") %>% subset(!(scenario == "ssp585" & period %in% c("1850s","2000s")))
+
+```
+
+Helper Functions
+```{r}
+# helper function to determine 2 sd range
+within_k_sd <- function(x, mean, sd, k = 2) {
+  (x > (mean - (k * sd))) & (x < (mean + (k * sd)))
+}
+
+# generate 2 sd regions for each pair of vars 
+generate_carbon_regions <- function(sd_level = 2, co2, co2sd, hco3, hco3sd, co3, co3sd, pH, pHsd, temp, tempsd) {
+  # set sd level
+  co2sd <- co2sd * sd_level
+  hco3sd <- hco3sd * sd_level
+  co3sd <- co3sd * sd_level
+  pHsd <- pHsd * sd_level
+  tempsd <- tempsd * sd_level
+
+  df <- data.frame(co2, co2sd, hco3, hco3sd, co3, co3sd, pH, pHsd, temp, tempsd)
+
+  pairs <- combn(c("co2", "hco3", "co3", "pH", "temp"), 2, simplify = T) %>%
+    t() %>%
+    data.frame()
+
+  # get sd clouds
+  expand_points <- function(df, n_angles = 16) {
+    angles <- seq(0, 2 * pi, length.out = n_angles + 1)[-(n_angles + 1)]
+
+    expanded <- lapply(1:nrow(df), function(i) {
+      data.frame(
+        x = df$x[i] + df$sx[i] * cos(angles),
+        y = df$y[i] + df$sy[i] * sin(angles)
+      )
+    })
+    bind_rows(expanded)
+  }
+
+  # get regions
+  apply(pairs, 1, function(entry) {
+    orig_df <- data.frame(
+      x = df[, entry[1]],
+      y = df[, entry[2]],
+      sx = df[, paste0(entry[1], "sd")],
+      sy = df[, paste0(entry[2], "sd")]
+    )
+    expanded_pts <- orig_df %>% expand_points()
+
+    # use concaveman
+    polygon_pts <- concaveman::concaveman(
+      as.matrix(expanded_pts),
+      concavity = 1000, # 1000 is close to convex for this data
+      length_threshold = 0
+    )
+
+    # return
+    polygon_df <- as.data.frame(polygon_pts)
+    colnames(polygon_df) <- c(entry[1], entry[2])
+    list(polygon_df, orig_df)
+  })
+}
+
+# plot outcomes 
+plot_carbon_region <- function(region_list, oa_icc = T, oa_df = OA_ICC, fill = "grey50", color = "black") {
+  labs <- list(
+    hco3 = expression(paste("[HCO"[3]^"-", "]", " (", "umol ", kg^{-1}, ")")),
+    co2  = expression("[CO"[2] * "] (umol kg"^{-1} * ")"),
+    co3  = expression(paste("[CO"[3]^"-2", "]", " (", "umol ", kg^{-1}, ")")),
+    temp = "Temperature (°C)",
+    pco2 = expression("pCO"[2] * ""),
+    pH   = "pH (Total Scale)"
+  )
+  
+  oa_icc_key <- data.frame(
+    row.names = c("co2", "hco3", "co3", "pH", "temp"),
+    icc = c("CO2_mean", "HCO3_mean", "CO3_mean", "pHT_mean", "Temp_mean")
+  )
+  
+  sqrt_vars <- c("co2", "hco3", "co3")  # variables that get log10 transform
+  
+  make_scale <- function(var, axis) { # make scales 
+    scale_fn <- if (axis == "x") scale_x_log10 else scale_y_log10
+    if (var %in% sqrt_vars) scale_fn() else NULL
+  }
+  
+  plots <- lapply(seq_along(region_list), function(i) {
+    polygon_df <- region_list[[i]][[1]]
+    raw_pts    <- region_list[[i]][[2]]
+    col_names  <- colnames(polygon_df)
+    
+    if (oa_icc) {
+      ggplot() +
+        geom_point(
+          aes(x = .data[[oa_icc_key[col_names[1], "icc"]]],
+              y = .data[[oa_icc_key[col_names[2], "icc"]]]),
+          color = "grey30", alpha = 0.3, shape = 19,
+          data = oa_df
+        ) +
+        geom_polygon(
+          data = polygon_df,
+          aes(x = .data[[col_names[1]]], y = .data[[col_names[2]]]),
+          fill = fill, alpha = 0.3, color = color, linewidth = 1,
+          inherit.aes = FALSE
+        ) +
+        theme_minimal() +
+        labs(x = labs[[col_names[1]]], y = labs[[col_names[2]]]) +
+        make_scale(col_names[1], "x") +
+        make_scale(col_names[2], "y")
+    } else {
+      ggplot() +
+        geom_polygon(
+          data = polygon_df,
+          aes(x = .data[[col_names[1]]], y = .data[[col_names[2]]]),
+          fill = fill, alpha = 0.3, color = color, linewidth = 1,
+          inherit.aes = FALSE
+        ) +
+        geom_errorbar(aes(x = x, y = y, ymin = y - sy, ymax = y + sy),
+                      width = 0, color = "gray40", data = raw_pts) +
+        geom_errorbarh(aes(x = x, y = y, xmin = x - sx, xmax = x + sx),
+                       height = 0, color = "gray40", data = raw_pts) +
+        geom_point(size = 2, aes(x = x, y = y), data = raw_pts) +
+        theme_minimal() +
+        labs(x = labs[[col_names[1]]], y = labs[[col_names[2]]])
+    }
+  })
+  plots
+}
+
+# check OA-ICC and lab points 
+check_points <- function(co2, hco3, co3, pH, temp, carbon_regions) {
+  df <- data.frame(co2, hco3, co3, pH, temp)
+
+  results <- map(carbon_regions, function(region) {
+    pair <- colnames(region[[1]])
+    test_points <- df[pair]
+
+    # Create polygon boundary
+    poly_sf <- st_polygon(list(as.matrix(region[[1]])))
+
+    # Convert to sf objects 
+    points_sf <- st_as_sf(test_points, coords = c(pair))
+    poly_sfc <- st_sfc(poly_sf)
+
+    # Test containment
+    inside <- st_within(points_sf, poly_sfc, sparse = FALSE)
+    inside <- as.vector(inside)
+    inside <- list(inside)
+    names(inside) <- paste(pair, collapse = "_")
+    inside
+  }) %>%
+    map(bind_cols) %>%
+    bind_cols()
+
+  results$ocean_relevant <- apply(results, 1, all)
+
+  bind_cols(df, results)
+}
+
+```
+
+Calculate Biome Multi-driver Regions
+```{r}
+
+carbon_regions <- generate_carbon_regions(
+  co2 = biomes$areaW_mean_abs_aqueous,
+  co2sd = biomes$sd_abs_aqueous,
+  hco3 = biomes$areaW_mean_abs_bicarbonate,
+  hco3sd = biomes$sd_abs_bicarbonate,
+  co3 = biomes$areaW_mean_abs_carbonate,
+  co3sd = biomes$sd_abs_carbonate,
+  pH = biomes$areaW_mean_abs_pH,
+  pHsd = biomes$sd_abs_pH,
+  temp = biomes$areaW_mean_abs_tos,
+  tempsd = biomes$sd_abs_tos
+)
+
+```
+
+Plot Multidriver Regions Supp. Figures
+```{r fig.height=6, fig.width=8, warning=FALSE}
+
+plots <- plot_carbon_region(carbon_regions,oa_icc = F)
+
+wrap_plots(
+  plots[[1]], plot_spacer(), plot_spacer(), plot_spacer(),
+  plots[[2]], plots[[5]], plot_spacer(), plot_spacer(),
+  plots[[3]], plots[[6]], plots[[8]], plot_spacer(),
+  plots[[4]], plots[[7]], plots[[9]], plots[[10]],
+  ncol = 4, nrow = 4
+) + plot_layout(axes = "collect")
+
+plots <- plot_carbon_region(carbon_regions,color = "red",fill = NA,
+                            oa_df = OA_ICC)
+
+wrap_plots(
+  plots[[1]], plot_spacer(), plot_spacer(), plot_spacer(),
+  plots[[2]], plots[[5]], plot_spacer(), plot_spacer(),
+  plots[[3]], plots[[6]], plots[[8]], plot_spacer(),
+  plots[[4]], plots[[7]], plots[[9]], plots[[10]],
+  ncol = 4, nrow = 4
+) + plot_layout(axes = "collect")
+
+
+```
+
+Assign to treatments 
+```{r}
+
+# check oa-icc points against multidriver regions, check if relavant 
+results <- check_points(
+  co2 = OA_ICC$CO2_mean,
+  hco3 = OA_ICC$HCO3_mean,
+  co3 = OA_ICC$CO3_mean,
+  pH = OA_ICC$pHT_mean,
+  temp = OA_ICC$Temp_mean,
+  carbon_regions = carbon_regions
+)
+
+OA_ICC$ocean_relevant <- results$ocean_relevant
+
+# calc high/low limits for later
+carblims <- data.frame(
+  co2_lower = min(biomes$areaW_mean_abs_aqueous - biomes$sd_abs_aqueous * 2),
+  co2_upper = max(biomes$areaW_mean_abs_aqueous + biomes$sd_abs_aqueous * 2),
+  hco3_lower = min(biomes$areaW_mean_abs_bicarbonate - biomes$sd_abs_bicarbonate * 2),
+  hco3_upper = max(biomes$areaW_mean_abs_bicarbonate + biomes$sd_abs_bicarbonate * 2),
+  co3_lower = min(biomes$areaW_mean_abs_carbonate - biomes$sd_abs_carbonate * 2),
+  co3_upper = max(biomes$areaW_mean_abs_carbonate + biomes$sd_abs_carbonate * 2),
+  ph_lower = min(biomes$areaW_mean_abs_pH - biomes$sd_abs_pH * 2),
+  ph_upper = max(biomes$areaW_mean_abs_pH + biomes$sd_abs_pH * 2),
+  temp_upper = max(biomes$areaW_mean_abs_tos + biomes$sd_abs_tos * 2),
+  temp_lower = min(biomes$areaW_mean_abs_tos - biomes$sd_abs_tos * 2)
+)
+
+# assign to treatments 
+oa_icc_hits <- list()
+for (i in 1:nrow(OA_ICC)) {
+  # ind hits
+  co2_hits <- within_k_sd(OA_ICC[i, "CO2_mean"], biomes$areaW_mean_abs_aqueous, biomes$sd_abs_aqueous)
+  hco3_hits <- within_k_sd(OA_ICC[i, "HCO3_mean"], biomes$areaW_mean_abs_bicarbonate, biomes$sd_abs_bicarbonate)
+  co3_hits <- within_k_sd(OA_ICC[i, "CO3_mean"], biomes$areaW_mean_abs_carbonate, biomes$sd_abs_carbonate)
+  temp_hits <- within_k_sd(OA_ICC[i, "Temp_mean"], biomes$areaW_mean_abs_tos, biomes$sd_abs_tos)
+  ph_hits <- within_k_sd(OA_ICC[i, "pHT_mean"], biomes$areaW_mean_abs_pH, biomes$sd_abs_pH)
+
+  cols <- c("scenario", "biome", "loc", "type", "period") # to assign
+  if (OA_ICC[i, "ocean_relevant"]) {
+    # what point is it closest too - evaluate all points so there is no sd bias
+    sd_vec <- c(
+      sd(biomes$areaW_mean_abs_aqueous),
+      sd(biomes$areaW_mean_abs_bicarbonate),
+      sd(biomes$areaW_mean_abs_carbonate),
+      sd(biomes$areaW_mean_abs_tos),
+      sd(biomes$areaW_mean_abs_pH)
+    )
+
+    d <- sqrt(
+      ((OA_ICC[i, "CO2_mean"] - biomes$areaW_mean_abs_aqueous) / sd_vec[1])^2 +
+        ((OA_ICC[i, "HCO3_mean"] - biomes$areaW_mean_abs_bicarbonate) / sd_vec[2])^2 +
+        ((OA_ICC[i, "CO3_mean"] - biomes$areaW_mean_abs_carbonate) / sd_vec[3])^2 +
+        ((OA_ICC[i, "Temp_mean"] - biomes$areaW_mean_abs_tos) / sd_vec[4])^2 +
+        ((OA_ICC[i, "pHT_mean"] - biomes$areaW_mean_abs_pH) / sd_vec[5])^2
+    )
+
+    closest_idx <- which.min(d)
+
+    oa_icc_hits[[i]] <- biomes[closest_idx, ]
+    OA_ICC[i, cols] <- biomes[closest_idx, cols]
+  } else {
+    oa_icc_hits[[i]] <- NULL
+    OA_ICC[i, cols] <- "Non-relevant"
+
+    OA_ICC[i, "miss_co2_dir"] <- ifelse(OA_ICC[i, "CO2_mean"] > carblims$co2_upper, "high",
+      ifelse(OA_ICC[i, "CO2_mean"] < carblims$co2_lower, "low", NA)
+    )
+    OA_ICC[i, "miss_hco3_dir"] <- ifelse(OA_ICC[i, "HCO3_mean"] > carblims$hco3_upper, "high",
+      ifelse(OA_ICC[i, "HCO3_mean"] < carblims$hco3_lower, "low", NA)
+    )
+    OA_ICC[i, "miss_co3_dir"] <- ifelse(OA_ICC[i, "CO3_mean"] > carblims$co3_upper, "high",
+      ifelse(OA_ICC[i, "CO3_mean"] < carblims$co3_lower, "low", NA)
+    )
+    OA_ICC[i, "miss_pH_dir"] <- ifelse(OA_ICC[i, "pHT_mean"] > carblims$ph_upper, "high",
+      ifelse(OA_ICC[i, "pHT_mean"] < carblims$ph_lower, "low", NA)
+    )
+    OA_ICC[i, "miss_temp_dir"] <- ifelse(OA_ICC[i, "Temp_mean"] > carblims$temp_upper, "high",
+      ifelse(OA_ICC[i, "Temp_mean"] < carblims$temp_lower, "low", NA)
+    )
+
+    #each ion has hits, but never on the same biome (no co-occurrence)
+    OA_ICC[i, "miss_cooccurrence"] <- any(co2_hits, na.rm = TRUE) &
+      any(hco3_hits, na.rm = TRUE) &
+      any(co3_hits, na.rm = TRUE) &
+      any(temp_hits, na.rm = TRUE) &
+      any(ph_hits, na.rm = TRUE)
+  }
+}
+
+# for non aligned treatments, get directionality of carbonate relative to ocean (i.e. high or low)
+
+# check high
+OA_ICC$miss_high <- (is.na(OA_ICC$miss_co2_dir) | OA_ICC$miss_co2_dir == "high") &
+  (is.na(OA_ICC$miss_hco3_dir) | OA_ICC$miss_hco3_dir == "high") &
+  (is.na(OA_ICC$miss_pH_dir) | OA_ICC$miss_pH_dir == "low") &
+  !(is.na(OA_ICC$miss_co2_dir) & is.na(OA_ICC$miss_hco3_dir) & is.na(OA_ICC$miss_co3_dir) & is.na(OA_ICC$miss_pH_dir))
+
+# check low
+OA_ICC$miss_low <- (is.na(OA_ICC$miss_co2_dir) | OA_ICC$miss_co2_dir == "low") &
+  (is.na(OA_ICC$miss_hco3_dir) | OA_ICC$miss_hco3_dir == "low") &
+  (is.na(OA_ICC$miss_pH_dir) | OA_ICC$miss_pH_dir == "high") &
+  !(is.na(OA_ICC$miss_co2_dir) & is.na(OA_ICC$miss_hco3_dir) & is.na(OA_ICC$miss_co3_dir) & is.na(OA_ICC$miss_pH_dir))
+
+# combine
+OA_ICC <- OA_ICC %>%
+  rowwise() %>%
+  mutate(
+    dir = (if_else(miss_high, "high", NA)),
+    dir = (if_else(miss_low, "low", dir))
+  )
+
+# things that were not high or low are missaligned
+OA_ICC[which(OA_ICC$ocean_relevant == F & is.na(OA_ICC$dir) & OA_ICC$miss_cooccurrence != T), "miss_cooccurrence"] <- T
+
+OA_ICC %>%
+  count(dir, ocean_relevant, miss_cooccurrence, name = "n") %>%
+  arrange(desc(n))
+
+```
+
+Plotting Supp. Figures and Stats for Paper
+```{r fig.height=8, fig.width=8}
+# label formatting 
+dhco3 <- expression(paste("Δ [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+dco2 <- expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")
+dco3 <- expression(paste("Δ [CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+dtemp <- "Δ Temperature (°C)"
+dpco2 <- expression("Δ pCO"[2]*"")
+
+hco3 <- expression(paste("Δ [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+co2 <- expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")
+co3 <- expression(paste("Δ [CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+temp <- "Δ Temperature (°C)"
+pco2 <- expression("Δ pCO"[2]*"")
+pH <- "pH (Total Scale)"
+
+# pie plotting
+# combine for stats on a study level
+rel_plot_sum <- OA_ICC %>%
+  group_by(Study_DOI) %>%
+  summarise(
+    any_relevant = any(ocean_relevant),
+    any_not_relevant = any(!ocean_relevant),
+    all_relevant = all(ocean_relevant),
+    all_not_relevant = all(!ocean_relevant),
+    mixed_relevant = any(ocean_relevant) & any(!ocean_relevant),
+    has_1850s = any(period == "1850s"),
+    has_2000s = any(period == "2000s"),
+    has_2090s = any(period == "2090s"),
+    has_ssp245 = any(period == "2090s" & scenario == "ssp245"),
+    has_ssp585 = any(period == "2090s" & scenario == "ssp585"),
+    has_high = any(dir == "high"),
+    has_low = any(dir == "low"),
+    has_miss = any(miss_cooccurrence),
+    has_EQU = any(type == "EQU"),
+    has_STPS = any(type == "STPS"),
+    has_STSS = any(type == "STSS"),
+    has_SPSS = any(type == "SPSS"),
+    .groups = "drop"
+  )
+
+sum(OA_ICC$ocean_relevant) # 1402 biome relavent treatments 
+sum(OA_ICC$ocean_relevant)/nrow(OA_ICC) # 57% of treatments biome relavent
+rel_plot_sum %>% summarise(across(-Study_DOI, ~ sum(.x) / 196)) # more stats - relative
+rel_plot_sum %>% summarise(across(-Study_DOI, ~ sum(.x))) # more stats - # of studies 
+
+# supp figure 
+OA_ICC <- OA_ICC %>%
+  mutate(category = case_when(
+    miss_cooccurrence      ~ "Misaligned",
+    dir == "high"          ~ "Higher Inorganic Carbon",
+    dir == "low"           ~ "Lower Inorganic Carbon",
+    ocean_relevant         ~ "Biome Relevant"
+  ))
+
+ggplot(OA_ICC, aes(y= pHT_mean,x = CO2_mean , color = category)) +
+  geom_point(shape = 19,alpha = 0.3) +
+  scale_color_manual(values = c(
+    "Background"     = "grey80",
+    "Higher Inorganic Carbon"        = "#E05C3A",
+    "Lower Inorganic Carbon"         = "#4A90D9",
+    "Misaligned"     = "#9B59B6",
+    "Biome Relevant" = "#F5C518"
+  )) +
+  theme_minimal() +
+  lims(x = c(0, 100)) +
+  labs(x = co2,y = pH,color = "OA-ICC Treatment Alignment") +
+  plot_spacer() +
+ggplot(OA_ICC, aes(CO2_mean, HCO3_mean, color = category)) +
+  geom_point(shape = 19,alpha = 0.3) +
+  scale_color_manual(values = c(
+    "Background"     = "grey80",
+    "Higher Inorganic Carbon"        = "#E05C3A",
+    "Lower Inorganic Carbon"         = "#4A90D9",
+    "Misaligned"     = "#9B59B6",
+    "Biome Relevant" = "#F5C518"
+  )) +
+  theme_minimal() +
+  lims(x = c(0, 100), y = c(0, 3000)) +
+  labs(x = co2,y = hco3,color = "OA-ICC Treatment Alignment") +
+  ggplot(OA_ICC, aes(y= HCO3_mean,x = pHT_mean , color = category)) +
+  geom_point(shape = 19,alpha = 0.3) +
+  scale_color_manual(values = c(
+    "Background"     = "grey80",
+    "Higher Inorganic Carbon"        = "#E05C3A",
+    "Lower Inorganic Carbon"         = "#4A90D9",
+    "Misaligned"     = "#9B59B6",
+    "Biome Relevant" = "#F5C518"
+  )) +
+  theme_minimal() +
+  lims(y = c(0, 3000)) +
+  labs(x = pH,y = hco3,color = "OA-ICC Treatment Alignment") +
+  plot_layout(ncol = 2,nrow = 2,guides = "collect",axes = "collect",) 
+
+
+rel_plot_sum$has_low[is.na(rel_plot_sum$has_low)] <- FALSE
+rel_plot_sum$has_high[is.na(rel_plot_sum$has_high)] <- FALSE
+rel_plot_sum$has_miss[is.na(rel_plot_sum$has_miss)] <- FALSE
+
+# pie plot
+pie1_a <- data.frame(
+  `all rel` = sum(rel_plot_sum$all_relevant),
+  `no rel` = sum(rel_plot_sum$all_not_relevant),
+  `mixed` = sum(rel_plot_sum$mixed_relevant)
+) %>%
+  pivot_longer(everything()) %>%
+  ggplot(aes(x = "", y = value, fill = name)) +
+  geom_bar(stat = "identity", width = 1, color = "black", linewidth = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(fill = "") +
+  scale_fill_manual(values = c("white", "grey50", "black")) +
+  geom_label(aes(label = value), color = "black", fill = "white", position = position_stack(vjust = 0.5))
+
+b <- ggVennDiagram::ggVennDiagram(list(
+  `1850s` = rel_plot_sum$Study_DOI[rel_plot_sum$has_1850s],
+  `2000s` = rel_plot_sum$Study_DOI[rel_plot_sum$has_2000s],
+  `2090s` = rel_plot_sum$Study_DOI[rel_plot_sum$has_2090s]
+), label = "count") +
+  scale_fill_gradient(high = "#0096FF", low = "white", name = "# of Studies", limits = c(0, 90))
+
+c <- ggVennDiagram::ggVennDiagram(list(
+  `SSP2-4.5` = rel_plot_sum$Study_DOI[rel_plot_sum$has_ssp245],
+  `SSP5-8.5` = rel_plot_sum$Study_DOI[rel_plot_sum$has_ssp585]
+), label = "count") + scale_fill_gradient(high = "#0096FF", low = "white", name = "# of Studies", limits = c(0, 90))
+
+d <- ggVennDiagram::ggVennDiagram(list(
+  `High` = rel_plot_sum$Study_DOI[rel_plot_sum$has_high],
+  `Low` = rel_plot_sum$Study_DOI[rel_plot_sum$has_low],
+  # `Rel` = rel_plot_sum$Study_DOI[rel_plot_sum$any_relevant]#,
+  `miss` = rel_plot_sum$Study_DOI[rel_plot_sum$has_miss]
+), label = "count") + scale_fill_gradient(high = "#0096FF", low = "white", name = "# of Studies", limits = c(0, 90))
+
+e <- ggVennDiagram::ggVennDiagram(list(
+  `EQU` = rel_plot_sum$Study_DOI[rel_plot_sum$has_EQU],
+  `STPS` = rel_plot_sum$Study_DOI[rel_plot_sum$has_STPS],
+  `SPSS` = rel_plot_sum$Study_DOI[rel_plot_sum$has_SPSS],
+  `STSS` = rel_plot_sum$Study_DOI[rel_plot_sum$has_STSS]
+), label = "count") + scale_fill_gradient(high = "#0096FF", low = "white", name = "# of Studies", limits = c(0, 90))
+
+pie1_a + b + c + d + plot_layout(guides = "collect", nrow = 2) + plot_annotation(tag_levels = "A")
+
+```
