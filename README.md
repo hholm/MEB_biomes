@@ -24,7 +24,7 @@ This folder contains Interactive Python Notebooks used to download relevant eart
 > 	 - **03_merge_ESMoutput_pyCO2sysoutput**: File merger with full carbonate system data.
 > 	 - **04_decadal_means**: Subsetting data to monthly average over 3 select decades (1850s, 2000s, 2090s) and exporting.
 
-The final output of this pipeline can be found in **cmip6_drivers.zip** on Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22017672.svg)](https://doi.org/10.5281/zenodo.22017672).
+The final output of this pipeline including 1x1 degree ocean maps can be found in **cmip6_drivers.zip** on Zenodo: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22017672.svg)](https://doi.org/10.5281/zenodo.22017672).
 #### **code/02_Biome_Calculations**
 
 This folder contains code for re-calculation of biome average values (annual and seasonal) from CMIP6 data as well as comparison to OA-ICC (i.e. literature) values. If you do not wish to re-run this analysis all output files from these section are already contained in the repository.
