@@ -379,6 +379,27 @@ pH_panel
 
 ```
 
+Supp Figure Ghux co2 and container level
+```{r}
+ph_cd$dfs$Ehux %>%
+  mutate(container = str_replace(container,pattern = "150rpm",replacement = "150 rpm"),
+         container = str_replace(container,pattern = "125ml", replacement = "125ml flasks")) %>%
+  
+  ggplot() +
+  geom_point(aes(CellDensity,pH_offset,
+                 color = container, shape = as.factor(Incubator.CO2.ppm.nominal),
+                 ),size = 3) +
+  geom_line(aes(cd,ph),data = subset(ph,sp == "Ehux"),size = 1) +
+  annotate(geom = "segment",y = ph_offset,yend = ph_offset,x = 0,xend = cells_ml_ehux,linetype = "dashed") +
+  annotate(geom = "segment",y = -0.2,yend = ph_offset,x = cells_ml_ehux,xend = cells_ml_ehux,linetype = "dashed") +
+  scale_x_log10(breaks = 10^(3:6)) +
+  #scale_y_continuous(limits = c(-0.2,1.75),expand = expansion()) +
+  labs(x = "Cell Density (log10 cells/mL)", y = "ΔpH",
+       shape = expression(Air ~ CO[2] ~ Level), color = "Container and Shaking Speed") +
+  ggpubr::theme_pubclean() + theme(legend.position = "left")
+```
+
+
 Figure 4 - DIC Alignment with NA and lab replication
 ```{r}
 
@@ -608,7 +629,7 @@ pH_panel + theme(axis.title = element_text(size = 10)) + theme(legend.position =
 
 ```
 
-Non-change version for suppliment
+Non-delta version for supplement
 ```{r}
 
 ############### abs version for suppliment
