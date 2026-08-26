@@ -1,0 +1,127 @@
+"","X","container","Condition","Species","Method","Medium","pH_actual_average","pH_NIST","pH_offset","CellDensity","Incubator.CO2.ppm.nominal"
+"1",1,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.044,-0.036,4933.333333,430
+"2",2,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.082,0.002,NA,430
+"3",3,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.12,0.04,62033.33333,430
+"4",4,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.064,-0.016,1250,430
+"5",5,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.098,0.018,2033.333333,430
+"6",6,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.086,0.006,9633.333333,430
+"7",7,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.052,-0.028,6016.666667,430
+"8",8,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.081,0.001,8850,430
+"9",9,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.221,0.141,109066.6667,430
+"10",10,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.065,-0.015,4100,430
+"11",11,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.077,-0.003,6850,430
+"12",12,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.092,0.012,30783.33333,430
+"13",13,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.097,0.017,29883.33333,430
+"14",14,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.155,0.075,27883.33333,430
+"15",15,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.471,0.391,216033.3333,430
+"16",16,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.119,0.039,19166.66667,430
+"17",17,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.108,0.028,38500,430
+"18",18,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.194,0.114,150483.3333,430
+"19",19,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.123,0.043,31350,430
+"20",20,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.195,0.115,NA,430
+"21",21,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.69,0.61,705083.3333,430
+"22",22,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.155,0.075,95433.33333,430
+"23",23,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.197,0.117,161633.3333,430
+"24",24,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,8.652,0.572,636183.3333,430
+"25",25,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.554,0.474,NA,430
+"26",26,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.725,0.645,1388033.333,430
+"27",27,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0007",8.08,8.926,0.846,2995533.333,430
+"28",28,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,9.3,1.22,2740283.333,430
+"29",29,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,9.543,1.463,3098766.667,430
+"30",30,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0007",8.08,9.543,1.463,4599716.667,430
+"31",31,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"32",32,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"33",33,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"34",34,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"35",35,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"36",36,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"37",37,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"38",38,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"39",39,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"40",40,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"41",41,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"42",42,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"43",43,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"44",44,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"45",45,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"46",46,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"47",47,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"48",48,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"49",49,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"50",50,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"51",51,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"52",52,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"53",53,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"54",54,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","ESAW L1-0007",8.08,NA,NA,NA,430
+"55",55,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"56",56,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"57",57,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"58",58,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"59",59,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"60",60,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"61",61,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"62",62,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"63",63,"125ml (150rpm)","Ambient430","Ehux","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"64",64,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"65",65,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"66",66,"125ml (150rpm)","Ambient430","Tpsu","SmallProbe","L1-0008",8.08,NA,NA,NA,430
+"103",103,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.695,0.135,34000,2002
+"104",104,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,7.858,0.051,34400,940
+"105",105,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,7.955,-0.067,74100,430
+"106",106,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.59,0.03,34000,2002
+"107",107,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,7.916,0.109,34400,940
+"108",108,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.148,0.126,74100,430
+"109",109,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.7,0.14,111600,2002
+"110",110,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,7.93,0.123,153800,940
+"111",111,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.19,0.168,271900,430
+"112",112,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.779,0.219,111600,2002
+"113",113,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,7.86,0.053,153800,940
+"114",114,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.429,0.407,271900,430
+"115",115,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,8.06,0.5,672000,2002
+"116",116,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,8.47,0.663,838400,940
+"117",117,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.448,0.426,1139000,430
+"118",118,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,8.29,0.73,672000,2002
+"119",119,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,8.733,0.926,838400,940
+"120",120,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.949,0.927,1139000,430
+"121",121,"Vials (50 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,8.673,1.113,2030000,2002
+"122",122,"Vials (50 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,8.775,0.968,1739800,940
+"123",123,"Vials (50 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,9.07,1.048,2322200,430
+"187",187,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.605,0.045,63450,2002
+"188",188,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,7.853,0.046,60150,940
+"189",189,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.027,0.005,88500,430
+"190",190,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.547,-0.013,63450,2002
+"191",191,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,7.839,0.032,60150,940
+"192",192,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.12,0.098,88500,430
+"193",193,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.587,0.027,178100,2002
+"194",194,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,7.963,0.156,325200,940
+"195",195,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.117,0.095,221600,430
+"196",196,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.727,0.167,178100,2002
+"197",197,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,8.089,0.282,325200,940
+"198",198,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.457,0.435,221600,430
+"199",199,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.785,0.225,732400,2002
+"200",200,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,8.723,0.916,1905200,940
+"201",201,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.46,0.438,909800,430
+"202",202,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,8.23,0.67,732400,2002
+"203",203,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,8.915,1.108,1905200,940
+"204",204,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.72,0.698,909800,430
+"205",205,"Vials (50 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,8.637,1.077,3814400,2002
+"206",206,"Vials (50 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,9.104,1.297,5185000,940
+"207",207,"Vials (50 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,9.146,1.124,2900800,430
+"217",217,"Vials (100 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.63,0.07,149650,2002
+"218",218,"Vials (100 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,7.972,0.165,133450,940
+"219",219,"Vials (100 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.215,0.193,140250,430
+"220",220,"Vials (100 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,8.582,0.56,705300,430
+"221",221,"Vials (100 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,8.619,0.812,999600,940
+"222",222,"Vials (100 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,7.861,0.301,1253700,2002
+"223",223,"Vials (100 rpm)","Ambient430","Ehux","SmallProbe","L1",8.022,9.143,1.121,1889400,430
+"224",224,"Vials (100 rpm)","940ppm","Ehux","SmallProbe","L1",7.807,9.29,1.483,2940200,940
+"225",225,"Vials (100 rpm)","2002ppm","Ehux","SmallProbe","L1",7.56,8.911,1.351,3622200,2002
+"246",246,"Vials (100 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.694,0.134,282350,2002
+"247",247,"Vials (100 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,7.941,0.134,167000,940
+"248",248,"Vials (100 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.168,0.146,150500,430
+"249",249,"Vials (100 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,8.527,0.505,887000,430
+"250",250,"Vials (100 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,8.59,0.783,1404900,940
+"251",251,"Vials (100 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,7.925,0.365,1975400,2002
+"252",252,"Vials (100 rpm)","Ambient430","Tpsu","SmallProbe","L1",8.022,9.156,1.134,2735600,430
+"253",253,"Vials (100 rpm)","940ppm","Tpsu","SmallProbe","L1",7.807,9.233,1.426,4446600,940
+"254",254,"Vials (100 rpm)","2002ppm","Tpsu","SmallProbe","L1",7.56,8.774,1.214,5746800,2002

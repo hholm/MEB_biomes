@@ -1,0 +1,298 @@
+---
+title: "01_maintext_figures"
+author: "Henry Holm"
+date: "2026-08-20"
+output: html_document
+---
+
+Load Data and Packages - plotting functions
+```{r}
+# load packages
+library(tidyverse) # data processing, plotting
+library(patchwork) # plotting
+library(ggpubr)    # plotting
+library(here)      # file access
+
+# annualized biome average data
+biomes <- read.csv(here("data/product_data_processed/wide_annual_biomes_values.csv"))
+
+# OA-ICC with conditions
+OA_ICC <- read.csv(here("data/OA_ICC_data/OA_ICC_data_final.csv"))
+
+set_theme(theme_minimal())
+
+#### set axis expressions
+dhco3 <- expression(paste("Δ [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+dco2 <- expression("Δ [CO"[2]*"] (umol kg"^{-1}*")")
+dco3 <- expression(paste("Δ [CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+dtemp <- "Δ Temperature (°C)"
+dpco2 <- expression("Δ pCO"[2]*"")
+hco3 <- expression(paste("[HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))
+co2 <- expression("[CO"[2]*"] (umol kg"^{-1}*")")
+co3 <- expression(paste("[CO"[3]^"-2","]", " (", "umol ", kg^{-1}, ")"))
+temp <- "Temperature (°C)"
+pco2 <- expression("pCO"[2]*"")
+
+#### helper functions
+plot_delta <- function(data, var_x_suffix, var_y_suffix, y_lab = NA, x_lab = NA) {
+  
+  # Check for missing or NA character labels
+  if (missing(y_lab) || (is.character(y_lab) && length(y_lab) == 1 && is.na(y_lab))) {
+    y_lab <- var_y_suffix
+  }
+  if (missing(x_lab) || (is.character(x_lab) && length(x_lab) == 1 && is.na(x_lab))) {
+    x_lab <- var_x_suffix
+  }
+  
+  x_col <- paste0("areaW_mean_delta_", var_x_suffix)
+  y_col <- paste0("areaW_mean_delta_", var_y_suffix)
+  sd_x_col <- paste0("sd_delta_", var_x_suffix)
+  sd_y_col <- paste0("sd_delta_", var_y_suffix)
+  
+  x_sym <- rlang::sym(x_col)
+  y_sym <- rlang::sym(y_col)
+  sd_x_sym <- rlang::sym(sd_x_col)
+  sd_y_sym <- rlang::sym(sd_y_col)
+  
+  ggplot(
+    data %>% subset(type != "ICE" & period != "2000s"),
+    aes(x = !!x_sym, y = !!y_sym, color = p_s,shape = type)
+  ) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_vline(xintercept = 0, color = "black", linewidth = 0.1, linetype = "dashed") +
+    geom_point(size = 2) +
+    geom_errorbar(aes(
+      ymin = !!y_sym - !!sd_y_sym,
+      ymax = !!y_sym + !!sd_y_sym
+    ),linewidth = 0.1) +
+    geom_errorbarh(aes(
+      xmin = !!x_sym - !!sd_x_sym,
+      xmax = !!x_sym + !!sd_x_sym
+    ),linewidth = 0.1) +
+    labs(
+      y = if (is.expression(y_lab)) y_lab else paste0(y_lab),
+      x = if (is.expression(x_lab)) x_lab else paste0(x_lab),
+      color = "Period and Scenario", shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50", "orange", "maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+plot_abs_data <- function(data, 
+                          xvar, yvar,
+                          xlab = NULL, ylab = NULL,sdevs = 1) {
+  
+  # Capture variable names
+  x_name <- rlang::as_name(rlang::enquo(xvar))
+  y_name <- rlang::as_name(rlang::enquo(yvar))
+  
+  # Auto-find matching SD columns (assumes "sd_" prefix)
+  sd_x_name <- paste0("sd_", sub("^areaW_mean_", "", x_name))
+  sd_y_name <- paste0("sd_", sub("^areaW_mean_", "", y_name))
+  
+  # Check if they exist, else set NULL
+  sd_x <- if (sd_x_name %in% names(data)) rlang::sym(sd_x_name) else NULL
+  sd_y <- if (sd_y_name %in% names(data)) rlang::sym(sd_y_name) else NULL
+  
+  ggplot_data <- data %>%
+    subset(type != "ICE") %>%
+    group_by(scenario, biome, loc, type, period) %>%
+    ungroup()
+  
+  p <- ggplot(ggplot_data, aes(x = {{ xvar }}, y = {{ yvar }},
+                               color = p_s, shape = type)) +
+    geom_point()
+  
+  # Add error bars if found
+  if (!is.null(sd_y)) {
+    p <- p + geom_errorbar(aes(ymin = {{ yvar }} - !!sd_y*sdevs,
+                               ymax = {{ yvar }} + !!sd_y*sdevs),
+                           linewidth = 0.1)
+  }
+  if (!is.null(sd_x)) {
+    p <- p + geom_errorbar(aes(xmin = {{ xvar }} - !!sd_x*sdevs,
+                               xmax = {{ xvar }} + !!sd_x*sdevs),
+                           linewidth = 0.1)
+  }
+  
+  p +
+    labs(
+      x = ifelse(is.null(xlab), x_name, xlab),
+      y = ifelse(is.null(ylab), y_name, ylab),
+      color = "Period and Scenario", 
+      shape = "Biome Type"
+    ) +
+    scale_color_manual(values = c("grey50","#3295a8","orange","maroon")) +
+    scale_shape_manual(values = c(15:17,4))
+}
+
+
+```
+
+Main Text Figure 2 - Biome Scalings
+```{r fig.height=4.5, fig.width=11}
+
+fig1_bottom <- (
+  plot_delta(biomes,"tos","pCO2", x_lab = dtemp, y_lab = dpco2) +
+    plot_delta(biomes,"aqueous","pCO2", x_lab = dco2, y_lab = dpco2) + 
+    plot_delta(biomes,"bicarbonate","pCO2", x_lab = dhco3, y_lab = dpco2) + 
+    plot_delta(biomes,"carbonate","pCO2", x_lab = dco3, y_lab = dpco2) +
+    plot_delta(biomes,"pH","pCO2", x_lab = "Δ pH (Total Scale)", y_lab = dpco2) +
+    plot_delta(biomes,"dic","pCO2", x_lab = expression("Δ DIC (umol kg"^{-1}*")"), y_lab = dpco2) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  theme(
+    legend.position = "none",
+    plot.tag = element_text(
+      face = "bold",
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+fig1_top <- (
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_tos, yvar = areaW_mean_abs_pCO2,
+    xlab = temp, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_aqueous, yvar = areaW_mean_abs_pCO2,
+    xlab = co2, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_bicarbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = hco3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_carbonate, yvar = areaW_mean_abs_pCO2,
+    xlab = co3, ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_pH, yvar = areaW_mean_abs_pCO2,
+    xlab = "pH (Total Scale)", ylab = pco2
+  ) + theme(legend.position = "none") +
+  plot_abs_data(biomes,
+    xvar = areaW_mean_abs_dic, yvar = areaW_mean_abs_pCO2,
+    xlab = expression("DIC (umol kg"^{-1}*")"), ylab = pco2
+  ) + theme(legend.position = "none") + scale_x_continuous(n.breaks = 4) 
+) +
+  plot_layout(guides = "collect", nrow = 1, axes = "collect") &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+     # family = "Arial", 
+      size  = 12,
+      hjust = -0.1,
+      vjust = 1.1
+    )
+  )
+
+(fig1_top / fig1_bottom) + plot_annotation(tag_levels = "A")
+
+```
+
+Main Text Figure 3 - Compare Biomes to OA-ICC
+```{r fig.height=5, fig.width=11}
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_bicarbonate, x = areaW_mean_abs_aqueous, color = p_s)) +
+  geom_point(aes(y = HCO3_mean, x = CO2_mean, color = NA),
+                  color = 'grey70',alpha = 0.3,shape = 19, data = OA_ICC) +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_bicarbonate - sd_abs_bicarbonate*2,
+                    ymax = areaW_mean_abs_bicarbonate + sd_abs_bicarbonate*2),linewidth = 0.1) +
+  labs(x = co2, y = hco3,color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1,guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = list("EQU" = 15, "STPS" = 16, "STSS" = 17, "SPSS" = 4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),c(0,2600))
+
+panel1 <- main +
+inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.05,
+  right = 0.95, top = 0.45    
+)
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_carbonate, x = areaW_mean_abs_aqueous, color = p_s)) +
+      geom_point(aes(y = CO3_mean, x = CO2_mean, color = 'Lit data'),
+            alpha = 0.3, data = OA_ICC,shape = 19,color = "grey70") +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_carbonate - sd_abs_carbonate*2,
+                    ymax = areaW_mean_abs_carbonate + sd_abs_carbonate*2),linewidth = 0.1) +
+  labs(x = co2, y = co3,color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1,guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = c(15:17,4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),ylim = c(0,600))
+
+panel2 <- main + theme(legend.position = "none") + inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.45,
+  right = 0.95, top = 0.95
+) + labs(y = hco3, x = co3)
+
+
+inset <- biomes %>%
+  subset(type != "ICE" & p_s != "ssp585 - 2000s") %>%
+  group_by(scenario, biome, loc, type, period) %>%
+  ungroup() %>%
+  ggplot(aes(y = areaW_mean_abs_pH, x = areaW_mean_abs_aqueous, color = p_s)) +
+      geom_point(aes(y = pHT_mean, x = CO2_mean, color = 'Lit data'),
+            alpha = 0.3, data = OA_ICC,shape = 19,color = "grey70") +
+  geom_point(aes(shape = type)) +
+  geom_errorbar(aes(ymin = areaW_mean_abs_pH - sd_abs_pH*2,
+                    ymax = areaW_mean_abs_pH + sd_abs_pH*2),linewidth = 0.1) +
+  geom_errorbar(aes(xmin = areaW_mean_abs_aqueous - sd_abs_aqueous*2,
+                    xmax = areaW_mean_abs_aqueous + sd_abs_aqueous*2),linewidth = 0.1) +
+  labs(x = co2, y = 'pH (Total Scale)',color = "Period and Scenario",shape = "Biome Type") +
+  scale_color_manual(values = c("grey20","#3295a8","orange","maroon")) +
+  plot_layout(ncol = 1, guides = "collect") +
+  theme_minimal() +
+  scale_shape_manual(values = c(15:17,4))
+
+main <- inset + coord_cartesian(xlim = c(0,100),ylim = c(7.2,9.2))
+
+panel5 <- main + theme(legend.position = "none") + inset_element(
+  inset +
+    theme(
+      axis.title = element_blank(), # remove axis labels
+      legend.position = "none", # remove legend
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.background = element_rect(fill = "white", colour = "black")
+    ),
+  left = 0.45, bottom = 0.45,
+  right = 0.95, top = 0.95
+) + labs(y = hco3, x = co3)
+
+panel1 + panel2 + plot_layout(ncol = 2) 
+
+```

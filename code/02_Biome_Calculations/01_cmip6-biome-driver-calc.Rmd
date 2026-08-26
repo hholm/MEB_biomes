@@ -2,7 +2,7 @@
 title: "R Notebook"
 output: html_notebook
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 Download HPC output and other map files from Zenodo
@@ -24,7 +24,6 @@ download_zenodo("10.5281/zenodo.22017672", path = here("data/raw"))
 unzip(here("data/raw/cmip6_drivers.zip"), exdir = here("data/raw/cmip6_drivers"))
 
 ```
-
 
 Load Data and Packages
 ```{r}
@@ -360,7 +359,10 @@ delta <- full_join(delta,abs,
                    suffix = c("_delta","_abs")
                    )
 
-write.csv(delta, file = here("data/product_data_processed/long_annual_biomes_values.csv"))
+# drop identical values between scenarios 
+long <- delta %>% subset(!(period %in% c("1850s","2000s") & scenario == "ssp585")) 
+
+write.csv(long, file = here("data/product_data_processed/long_annual_biomes_values.csv"))
 
 delta <- delta %>%
   pivot_wider(
@@ -399,8 +401,10 @@ delta <- full_join(delta,abs,
                    by = join_by(id,period,scenario,var,biome,loc,type,month,n),
                    suffix = c("_delta","_abs")
                    )
+# drop identical values between scenarios 
+long <- delta %>% subset(!(period %in% c("1850s","2000s") & scenario == "ssp585")) 
 
-write.csv(delta, file = here("data/product_data_processed/long_seas_biomes_values.csv"))
+write.csv(long, file = here("data/product_data_processed/long_seas_biomes_values.csv"),row.names = F)
 
 delta <- delta %>%
   pivot_wider(
@@ -422,6 +426,174 @@ delta[which(delta$p_s %in% c("ssp245 - 2090s")),"p_s"] <- "SSP2-4.5 , 2090s"
 
 
 write.csv(delta, file = here("data/product_data_processed/wide_seas_biomes_values.csv"))
+
+```
+
+Supp Fig - Ocean SODA compare
+```{r}
+#load data
+biomes <- read.csv(here("data/product_data_processed/wide_annual_biomes_values.csv"))
+SODA_total <- read.csv(here("data/product_data_processed/soda_means_2000s.csv"))
+
+SODA_total <- SODA_total %>%
+  separate(biome,into = c("loc","type"),"_",remove = F,extra = "merge") %>%
+  pivot_wider(
+    id_cols = c(biome, loc, type),
+    names_from = variable , values_from = c(areaW_mean, sd, min, max)
+  ) 
+
+compare <- biomes %>% subset(period == "2000s" & type != "ICE") %>%
+  left_join(rename_all(SODA_total,.funs = ~ paste0(.x,"_soda")),join_by(biome == biome_soda)) 
+
+make_comparison_plot <- function(df, x, sd_x, y, sd_y, x_lab, y_lab) {
+  ggplot(df, aes(.data[[x]], .data[[y]])) +
+    geom_point(aes(shape = type)) +
+    geom_abline(linetype = "dashed") +
+    geom_errorbar(aes(
+      xmin = .data[[x]] - .data[[sd_x]],
+      xmax = .data[[x]] + .data[[sd_x]]
+    )) +
+    geom_errorbar(aes(
+      ymin = .data[[y]] - .data[[sd_y]],
+      ymax = .data[[y]] + .data[[sd_y]]
+    )) +
+    scale_shape_manual(values = c(15:17, 4)) +
+    labs(x = x_lab, y = y_lab)
+}
+
+compare %>%
+  ggplot(aes(areaW_mean_abs_tos,areaW_mean_temperature_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_tos + sd_abs_tos,
+                    xmin = areaW_mean_abs_tos - sd_abs_tos)) +
+    geom_errorbar(aes(ymax = areaW_mean_temperature_soda + sd_temperature_soda,
+                    ymin = areaW_mean_temperature_soda - sd_temperature_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = "SODA - Temperature (°C)",
+       x = "CMIP6 - Temperature (°C)") +
+compare %>%
+  ggplot(aes(areaW_mean_abs_aqueous,areaW_mean_co2_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_aqueous + sd_abs_aqueous,
+                    xmin = areaW_mean_abs_aqueous - sd_abs_aqueous)) +
+    geom_errorbar(aes(ymax = areaW_mean_co2_soda + sd_co2_soda,
+                    ymin = areaW_mean_co2_soda - sd_co2_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = expression(paste("SODA - [CO"[2]*"] (umol kg"^{-1}*")")),
+       x = expression(paste("CMIP6 - [CO"[2]*"] (umol kg"^{-1}*")"))) +
+  plot_layout(guides = "collect") +
+compare %>%
+  ggplot(aes(areaW_mean_abs_bicarbonate,areaW_mean_hco3_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_bicarbonate + sd_abs_bicarbonate,
+                    xmin = areaW_mean_abs_bicarbonate - sd_abs_bicarbonate)) +
+    geom_errorbar(aes(ymax = areaW_mean_hco3_soda + sd_hco3_soda,
+                    ymin = areaW_mean_hco3_soda - sd_hco3_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = expression(paste("SODA - [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")")),
+       x = expression(paste("CMIP6 - [HCO"[3]^"-","]", " (", "umol ", kg^{-1}, ")"))) +
+  plot_layout(guides = "collect") +
+  compare %>%
+  ggplot(aes(areaW_mean_abs_carbonate,areaW_mean_co3_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_carbonate + sd_abs_carbonate,
+                    xmin = areaW_mean_abs_carbonate - sd_abs_carbonate)) +
+    geom_errorbar(aes(ymax = areaW_mean_co3_soda + sd_co3_soda,
+                    ymin = areaW_mean_co3_soda - sd_co3_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = expression(paste("SODA - [CO"[3]^"2-","]", " (", "umol ", kg^{-1}, ")")),
+       x = expression(paste("CMIP6 - [CO"[3]^"2-","]", " (", "umol ", kg^{-1}, ")"))) +
+  plot_layout(guides = "collect") +
+  compare %>%
+ggplot(aes(areaW_mean_abs_dic,areaW_mean_dic_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_dic + sd_abs_dic,
+                    xmin = areaW_mean_abs_dic - sd_abs_dic)) +
+    geom_errorbar(aes(ymax = areaW_mean_dic_soda + sd_dic_soda,
+                    ymin = areaW_mean_dic_soda - sd_dic_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = expression(paste("SODA - DIC", " (", "umol ", kg^{-1}, ")")),
+       x = expression(paste("CMIP6 - DIC", " (", "umol ", kg^{-1}, ")"))) +
+  plot_layout(guides = "collect") +
+compare %>%
+  ggplot(aes(areaW_mean_abs_pH,areaW_mean_ph_total_soda)) +
+  geom_point(aes(shape = type)) +
+  geom_abline(linetype = "dashed") + 
+    geom_errorbar(aes(xmax = areaW_mean_abs_pH + sd_abs_pH,
+                    xmin = areaW_mean_abs_pH - sd_abs_pH)) +
+    geom_errorbar(aes(ymax = areaW_mean_ph_total_soda + sd_ph_total_soda,
+                    ymin = areaW_mean_ph_total_soda - sd_ph_total_soda)) +
+    scale_shape_manual(values = c(15:17,4)) +
+  labs(y = "SODA - pH (Total Scale)",
+       x = "CMIP6 - pH (Total Scale)") + plot_layout(guides = "collect")  + plot_annotation(tag_levels = "A")
+```
+
+Supp Fig - Seasonal overlaps
+```{r fig.height=4, fig.width=9}
+
+overlap <- function (x, y) { # taking this function from DescTools to test overlap in seasonal ranges 
+    x <- cbind(apply(rbind(x), 1L, min), apply(rbind(x), 1L, 
+        max))
+    y <- cbind(apply(rbind(y), 1L, min), apply(rbind(y), 1L, 
+        max))
+    maxdim <- max(nrow(x), nrow(y))
+    x <- x[rep(1L:nrow(x), length.out = maxdim), , drop = FALSE]
+    y <- y[rep(1L:nrow(y), length.out = maxdim), , drop = FALSE]
+    d1 <- x[, 2L]
+    idx <- x[, 2L] > y[, 2L]
+    d1[idx] <- y[idx, 2L]
+    d2 <- y[, 1L]
+    idx <- x[, 1L] > y[, 1L]
+    d2[idx] <- x[idx, 1L]
+    d <- d1 - d2
+    d[d <= 0L] <- 0L
+    unname(d)
+}
+
+#load data
+biomes_seas <- read.csv(here("data/product_data_processed/wide_seas_biomes_values.csv"))
+biomes_seas_long <- read.csv(here("data/product_data_processed/long_seas_biomes_values.csv"))
+
+biomes_seas %>%
+  subset(biome == "NP_SPSS" & period != "1850s") %>% 
+  ggplot() + geom_line(aes(month,seas_areaW_mean_abs_pCO2,color = p_s)) +
+  scale_color_manual(values = c("#3295a8","orange","maroon")) + theme_minimal() +
+  labs(y = "pCO2 (ppm)", x = "Numeric Month") +
+biomes_seas %>%
+  subset(biome == "NP_SPSS" & period != "1850s") %>% 
+  ggplot() + geom_line(aes(month,seas_areaW_mean_abs_tos,color = p_s)) +
+  scale_color_manual(values = c("#3295a8","orange","maroon")) + theme_minimal() +
+  labs(y = "Surface Temperature (C)", x = "Numeric Month") +
+  plot_layout(guides = "collect") + plot_annotation(tag_levels = "A") +
+
+biomes_seas_long %>%
+  filter(!(scenario == "ssp585" & period == "2090s")) %>% # drop ssp585, do that one below
+  group_by(biome, var) %>%
+  summarise(
+  overlap = overlap(
+    range(seas_areaW_mean_abs[period == "2000s"], na.rm = T),
+    range(seas_areaW_mean_abs[period == "2090s"], na.rm = T)
+  )) %>%
+  ggplot() +
+  geom_raster(aes(var, biome, fill = (overlap != 0))) + 
+  scale_fill_manual(values = c("grey50","lightgreen")) + labs(fill = "Overlap") +
+
+biomes_seas_long %>%
+  filter(!(scenario == "ssp245" & period == "2090s")) %>% # drop ssp245
+  group_by(biome, var) %>%
+  summarise(overlap = overlap(
+    range(seas_areaW_mean_abs[period == "2000s"], na.rm = T),
+    range(seas_areaW_mean_abs[period == "2090s"], na.rm = T)
+  )) %>%
+  ggplot() +
+  geom_raster(aes(var, biome, fill = (overlap != 0))) +
+  scale_fill_manual(values = c("grey50","lightgreen")) + labs(fill = "Overlap")
+
 
 ```
 
