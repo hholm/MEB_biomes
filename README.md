@@ -1,7 +1,7 @@
 # LDEO-MEB Surface Ocean Multi-Driver Dataset (MEB_biomes)
 This repository contains data and code for reproducing multi-drivers values for both the surface ocean carbonate system and temperature from forthcoming work from [LDEO-MEB](https://hurley.ldeo.columbia.edu/) lab group. These values are intended to help contextualize biology experiments that investigate ocean acidification and temperature change. Using data from five publicly available ESMs models, we provide mean monthly-resolution pre-industrial (1850s), modern (2000s), and future values (2090s) for all drivers. We divide the ocean up into 14 biomes to help constrain these data geospatially. Lastly, we compare these multi-driver values to both experiments in our lab group as well as the broader literature. 
 
-If you have any questions or inquiries about these data, please do not hesitate to contact me at [hholm@ldeo.columbia.edu](mailto:hholm@ldeo.columbia.edu).
+All code here was written by [Henry Holm](https://github.com/hholm) and [Abby Shaum](https://github.com/AbbySh). If you have any questions or inquiries about these data, please do not hesitate to contact me at [hholm@ldeo.columbia.edu](mailto:hholm@ldeo.columbia.edu).
 
 > **QUICK ACCESS - Mean Biome Values:** For those looking for the mean biome values featured in Holm *et al.* (both seasonal and annual) but not interested in reproducing the papers analysis/figures we have provided a [formatted excel file here.](https://github.com/hholm/MEB_biomes/raw/refs/heads/main/data/product_data_processed/Biome_Values_Holm_et_al.xlsx)
 
